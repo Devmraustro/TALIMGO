@@ -183,3 +183,27 @@ virtualenv path that cannot exist on a CI runner.
 * **The skipped test is reported, not hidden**: CI runs `pytest -m local_model -rs` and shows the skip
   reason.
 * Coverage percentages are not cited as evidence of correctness; no coverage number was measured.
+
+---
+
+## 6. Code-review round — four integrity findings (2026-10-10)
+
+A review of the merged slice found four defects. Each was reproduced by a failing regression test
+before being fixed; the tests stay in the suite.
+
+| # | Finding | Fix | Regression tests |
+|---|---|---|---|
+| 1 | `start_practice()` accepted any `goal_id`/`plan_item_id`, so learner B could attach a session to learner A's plan item, and completion then ticked A's roadmap item off | ownership and consistency are validated before the session is created (`_resolve_practice_context`, `plan_item_for_user`); foreign references are reported as unknown (404) so existence is not disclosed, and inconsistent references inside the learner's own data as conflicts (409); completion re-checks ownership at the point of the write | `tests/test_authorisation_practice.py` (5 tests, including a pre-existing-session row pointing at a foreign item) |
+| 2 | `answer_diagnostic()` graded and recorded any item, in any order, from any path | the submitted item must be the exact next item for the attempt, belong to the path of the attempt's goal and be diagnostic-eligible; all checks run before grading or writing, so a rejection leaves no response row, no evidence and no cursor movement | `tests/test_diagnostic_integrity.py` (6 tests; each asserts the database is byte-for-byte unchanged) |
+| 3 | `build_grounding()` quoted any lesson id under any objective, corrupting the citation allow-list | a lesson belonging to another objective raises `GroundingMismatchError` before a prompt is built, and the endpoint answers 400; an *unknown* id still falls back to the requested objective's own lesson so a stale link cannot break tutoring | `tests/test_tutor_grounding.py` (5 tests, incl. proof the model is never called and no allowance is consumed) |
+| 4 | `_placement()` only upgraded statuses, so an incorrect answer after a correct one was silently ignored | one explicit rule in `aggregate_placement()`: every answer is counted, any incorrect answer leaves the objective at `needs_work`, otherwise `assumed_known` when the hardest correct item was difficulty >= 3 and `likely_known` for easy-only; counts and the hardest difficulty are reported, and the rule text is returned with the placement | `tests/test_placement_aggregation.py` (9 tests: correct-then-incorrect, incorrect-then-correct, mixed difficulty, independent objectives, determinism, stored attempt) |
+
+Verification after the fixes: backend **200 passed, 1 skipped** (the skip is still the offline
+local-model test); `ruff check`/`ruff format --check` clean over `app tests scripts`; `bandit -r app`
+0 findings; `alembic upgrade head` + `alembic check` report no drift; `scripts/check_no_external_ai.py`
+and both licence checkers pass; frontend `tsc --noEmit` clean, 16 tests pass, production build
+unchanged; and the live stack was re-walked through the dev proxy, where an out-of-order item now
+returns 409 with the attempt unchanged and the completed check reports the new placement rule.
+
+Still true: no local model runtime exists in this environment, so no real inference and no Arabic
+model-quality evaluation has been performed here.
