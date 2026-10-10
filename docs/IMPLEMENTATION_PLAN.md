@@ -246,3 +246,45 @@ recomputed values. `tests/test_api_journey.py` was updated deliberately: `master
 is now 0 after the starting check and ≥ 1 after the first practice answer.
 
 Full suite after the change: **210 passed, 1 skipped**.
+
+### 7.2 Practice-session lifecycle: an explicit completion target
+
+**Defects.** (a) `POST /api/practice/sessions/{id}/complete` completed the session and marked its
+roadmap item done unconditionally — the practice interface's *Back* action called it, so a learner
+who answered nothing could tick a roadmap step off. (b) `PracticeStartIn.size` was never applied to
+item selection and was passed per request to the read-only state builder, so a session started with
+`size=2` reported `total=5` on the next `GET` and the "next question" could change between calls.
+(c) There was no way to leave a session as distinct from completing it.
+
+**Fix.** The session now carries its completion target as persisted state:
+
+* `practice_sessions.target_items` (requested, clamped) and `practice_sessions.item_ids` (the
+  resolved plan) are written once, when the session is created. The plan is the requested size
+  clamped to the objective's item pool, ordered deterministically
+  (`|difficulty - band|`, `difficulty`, `id`), so the session length and question order cannot move.
+* `next_practice_item()` serves only the next unanswered question of that plan; answering a question
+  that is not in the plan, or out of order, is refused (409) without recording anything.
+* `complete_practice()` refuses (409) a session that is already finished or has unanswered planned
+  questions, and an empty-pool session is refused at creation. Only a session that meets the target
+  completes, and only then is the linked roadmap item marked `completed` (still ownership-checked).
+* `abandon_practice()` + `POST /api/practice/sessions/{id}/abandon` leave a session: recorded answers
+  and evidence are kept, the roadmap item stays `pending`, and the session can never be answered or
+  completed afterwards.
+* Answering the last question no longer auto-completes anything; completion is explicit and validated.
+* `PracticeSessionOut` gained `status` and `target_items` (additive); the interface now shows
+  *Finish session* only when the target is met, and its *Leave* action calls `abandon`.
+
+**Evidence.** `backend/tests/test_practice_lifecycle.py` (9 tests): target persisted and stable across
+`GET`; a target larger than the pool clamped to the pool; out-of-plan answers refused without
+recording; untouched and partially answered sessions refused 409 with the roadmap item still
+`pending`; a fully answered session completing exactly once; completion not establishing mastery;
+abandonment preserving answers and leaving the item pending; completed sessions refusing further
+answers and abandonment. Updated deliberately: `tests/test_api_journey.py` (a 1-of-3 completion is
+now refused, then all questions are answered), `tests/test_authorisation_practice.py` (the positive
+control answers the whole target; the foreign-plan-item test now satisfies the completion condition
+so the ownership check is the only thing preventing the write). Frontend:
+`frontend/src/components/PracticePanel.test.tsx` (2 tests) pins *leave → abandon* and
+*finish → complete only when the target is met*.
+
+Full suite after the change: **219 passed, 1 skipped**; `alembic upgrade head` + `alembic check` clean
+with the new revision `8f1c2d4e6a70`.

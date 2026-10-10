@@ -13,7 +13,8 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from tests.conftest import answer_diagnostic_until_done, create_goal, register
+from app.curriculum.registry import item_index
+from tests.conftest import _correct_response, answer_diagnostic_until_done, create_goal, register
 
 OWNER = "owner@example.com"
 INTRUDER = "intruder@example.com"
@@ -122,7 +123,7 @@ def test_practice_session_rejects_a_plan_item_that_belongs_to_another_objective(
 
 
 def test_owner_can_still_complete_their_own_plan_item(client) -> None:
-    """Positive control: the legitimate path keeps working."""
+    """Positive control: the legitimate path keeps working — and only after the target is met."""
     register(client, email=OWNER)
     goal = create_goal(client)
     answer_diagnostic_until_done(client, goal["id"])
@@ -134,13 +135,26 @@ def test_owner_can_still_complete_their_own_plan_item(client) -> None:
             "objective_id": item["objective_id"],
             "plan_item_id": item["id"],
             "goal_id": goal["id"],
+            "size": 2,
         },
     )
     assert created.status_code == 201, created.text
-    session_id = created.json()["session_id"]
+    session = created.json()
+    session_id = session["session_id"]
+    assert session["total"] == 2
+
+    while session["item"] is not None:
+        payload = _correct_response(session["item"])
+        answered = client.post(
+            f"/api/practice/sessions/{session_id}/answers",
+            json={"item_id": session["item"]["id"], "response": payload},
+        )
+        assert answered.status_code == 200, answered.text
+        session = answered.json()
 
     completed = client.post(f"/api/practice/sessions/{session_id}/complete")
     assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "completed"
     assert _first_item_status(client, plan["id"]) == "completed"
 
 
@@ -153,21 +167,46 @@ def test_completing_a_session_cannot_complete_another_learners_plan_item(client)
     from app.models import PracticeSession, User
 
     with session_scope() as db:
+        from app.models import PracticeResponse
+
         intruder_user = db.scalar(select(User).where(User.email == INTRUDER))
         assert intruder_user is not None
+        objective_id = world["intruder_item"]["objective_id"]
+        planned = [
+            row["id"]
+            for row in item_index("python-foundations").values()
+            if row["objective_id"] == objective_id
+        ]
+        assert planned, "the objective under test must have authored items"
         session_row = PracticeSession(
             user_id=intruder_user.id,
             goal_id=world["intruder_goal"]["id"],
             plan_item_id=world["owner_item"]["id"],  # written by a bug or an older build
-            objective_id=world["intruder_item"]["objective_id"],
+            objective_id=objective_id,
             status="in_progress",
+            target_items=len(planned),
+            item_ids=planned,
         )
         db.add(session_row)
+        db.flush()
+        # The completion condition is met, so the ownership check is the only thing standing
+        # between this request and another learner's roadmap item.
+        for item_id in planned:
+            db.add(
+                PracticeResponse(
+                    session_id=session_row.id,
+                    item_id=item_id,
+                    objective_id=objective_id,
+                    response={"text": "answered"},
+                    is_correct=True,
+                )
+            )
         db.commit()
         session_id = session_row.id
 
     completed = intruder.post(f"/api/practice/sessions/{session_id}/complete")
     assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "completed"
 
     assert _first_item_status(world["owner_client"], world["owner_plan"]["id"]) == "pending", (
         "completing a session must never mark another learner's plan item as completed"

@@ -407,12 +407,21 @@ def start_practice(
         db, user, objective_id=objective_id, goal_id=goal_id, plan_item_id=plan_item_id
     )
 
+    pool = list(db.scalars(select(Item).where(Item.objective_id == objective_id)).all())
+    if not pool:
+        raise AssessmentConflict("This objective has no practice questions yet.")
+    band = _difficulty_band(db, user.id, objective_id)
+    pool.sort(key=lambda row: (abs(row.difficulty - band), row.difficulty, row.id))
+    target = max(1, min(size, len(pool)))
+
     session = PracticeSession(
         user_id=user.id,
         goal_id=resolved_goal_id,
         plan_item_id=plan_item_id,
         objective_id=objective_id,
         status="in_progress",
+        target_items=target,
+        item_ids=[row.id for row in pool[:target]],
         started_at=now or utcnow(),
     )
     db.add(session)
@@ -420,19 +429,39 @@ def start_practice(
     return session
 
 
-def practice_items(db: DbSession, session: PracticeSession, *, size: int = 5) -> list[Item]:
-    """Choose items nearest the learner's current difficulty band, stable order, no repeats."""
+def next_practice_item(db: DbSession, session: PracticeSession) -> Item | None:
+    """The next unanswered question of the session's frozen plan, or ``None`` when it is done.
+
+    The plan (``session.item_ids``) was resolved once, when the session was created, so the session
+    length and the question order cannot change between requests, and the difficulty band moving
+    after a correct answer cannot silently extend the session.
+    """
+    if session.status != "in_progress":
+        return None
     answered = set(
         db.scalars(select(PracticeResponse.item_id).where(PracticeResponse.session_id == session.id)).all()
     )
-    band = _difficulty_band(db, session.user_id, session.objective_id)
-    candidates = [
-        item
-        for item in db.scalars(select(Item).where(Item.objective_id == session.objective_id))
-        if item.id not in answered
-    ]
-    candidates.sort(key=lambda item: (abs(item.difficulty - band), item.difficulty, item.id))
-    return candidates[:size]
+    for item_id in session.item_ids or []:
+        if item_id in answered:
+            continue
+        item = db.get(Item, item_id)
+        if item is not None:
+            return item
+    return None
+
+
+def practice_items(db: DbSession, session: PracticeSession) -> list[Item]:
+    """Backwards-compatible view of :func:`next_practice_item` as a 0-or-1 element list."""
+    item = next_practice_item(db, session)
+    return [item] if item is not None else []
+
+
+def practice_progress(db: DbSession, session: PracticeSession) -> tuple[int, int]:
+    """``(answered, target)`` for the session, from persisted state only."""
+    answered = len(
+        db.scalars(select(PracticeResponse.id).where(PracticeResponse.session_id == session.id)).all()
+    )
+    return answered, len(session.item_ids or [])
 
 
 def answer_practice(
@@ -446,10 +475,12 @@ def answer_practice(
     now: datetime | None = None,
 ) -> dict:
     if session.status != "in_progress":
-        raise AssessmentError("This practice session is already complete.")
+        raise AssessmentConflict("This practice session is already finished; start a new one.")
     item = db.get(Item, item_id)
     if item is None or item.objective_id != session.objective_id:
         raise AssessmentError("Unknown item for this practice session.")
+    if item.id not in set(session.item_ids or []):
+        raise AssessmentConflict("That question is not part of this practice session.")
 
     already = db.scalar(
         select(PracticeResponse).where(
@@ -457,7 +488,10 @@ def answer_practice(
         )
     )
     if already is not None:
-        raise AssessmentError("That item was already answered in this session.")
+        raise AssessmentConflict("That item was already answered in this session.")
+    expected = next_practice_item(db, session)
+    if expected is None or expected.id != item.id:
+        raise AssessmentConflict("That is not the next question in this session.")
 
     outcome = grade(item.kind, item.answer_key, response)
     moment = now or utcnow()
@@ -499,14 +533,43 @@ def answer_practice(
         "objective_title": objective.title_en if objective else item.objective_id,
     }
 
-    remaining = practice_items(db, session)
-    if not remaining:
-        session.status = "completed"
-        session.completed_at = moment
     db.flush()
 
+    # Answering the last question does **not** complete the session: completion is an explicit,
+    # validated action (``complete_practice``), because it is what ticks the roadmap item off.
+    following = next_practice_item(db, session)
+    answered, target = practice_progress(db, session)
     return {
         "feedback": feedback,
-        "next_item": remaining[0] if remaining else None,
-        "remaining": len(remaining),
+        "next_item": following,
+        "remaining": max(0, target - answered),
     }
+
+
+def complete_practice(db: DbSession, session: PracticeSession, *, now: datetime | None = None) -> None:
+    """Complete a session that has answered every planned question.
+
+    Raises ``AssessmentConflict`` (409) for an already-finished session or one whose completion
+    condition is not met, so a client can never mark roadmap progress it did not earn.
+    """
+    if session.status == "completed":
+        raise AssessmentConflict("This practice session is already complete.")
+    if session.status == "abandoned":
+        raise AssessmentConflict("This practice session was left and cannot be completed.")
+    answered, target = practice_progress(db, session)
+    if target == 0:
+        raise AssessmentConflict("This practice session has no questions to complete.")
+    if answered < target:
+        raise AssessmentConflict(
+            f"Answer all {target} questions before completing this session ({answered} answered)."
+        )
+    session.status = "completed"
+    session.completed_at = now or utcnow()
+
+
+def abandon_practice(db: DbSession, session: PracticeSession, *, now: datetime | None = None) -> None:
+    """Leave a session without losing recorded answers; it can never be completed afterwards."""
+    if session.status != "in_progress":
+        raise AssessmentConflict("Only a session in progress can be left.")
+    session.status = "abandoned"
+    session.abandoned_at = now or utcnow()

@@ -103,9 +103,25 @@ def test_full_journey_goal_to_measured_progress(client) -> None:
     after_practice = client.get("/api/dashboard").json()
     assert after_practice["mastery_summary"]["recorded"] >= 1, "practice evidence creates the estimate"
 
-    # Completing the session marks the plan item done, so the dashboard moves on.
+    # Answering everything is not completion: only an explicit, validated completion of a fully
+    # answered session marks the roadmap item done (see tests/test_practice_lifecycle.py).
+    refused = client.post(f"/api/practice/sessions/{session_body['session_id']}/complete")
+    assert refused.status_code == 409, refused.text
+
+    current = answered.json()
+    while current["item"] is not None:
+        payload = _correct_response(current["item"])
+        step = client.post(
+            f"/api/practice/sessions/{session_body['session_id']}/answers",
+            json={"item_id": current["item"]["id"], "response": payload, "used_hint": False},
+        )
+        assert step.status_code == 200, step.text
+        current = step.json()
+    assert current["answered"] == session_body["total"]
+
     completed = client.post(f"/api/practice/sessions/{session_body['session_id']}/complete")
-    assert completed.status_code == 200
+    assert completed.status_code == 200, completed.text
+    assert completed.json()["status"] == "completed"
     assert completed.json()["session_id"] == session_body["session_id"]
 
 

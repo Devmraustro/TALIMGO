@@ -69,7 +69,6 @@ export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinishe
       );
       setSession(updated);
       setFeedback(updated.feedback);
-      if (!updated.item) onFinished();
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : t("auth.error"));
     } finally {
@@ -77,9 +76,30 @@ export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinishe
     }
   }
 
-  async function finish() {
+  // Leaving keeps the recorded answers and never completes the roadmap step.
+  async function leave() {
     if (!session) return;
     setBusy(true);
+    setError(null);
+    try {
+      await api.post(`/api/practice/sessions/${session.session_id}/abandon`);
+      setSession(null);
+      onFinished();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : t("auth.error"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Completion is explicit and only possible once every planned question has been answered; the
+  // server validates the same condition, so the button state is a courtesy, not the control.
+  const finished = session !== null && session.item === null && session.answered >= session.total;
+
+  async function complete() {
+    if (!session || !finished) return;
+    setBusy(true);
+    setError(null);
     try {
       await api.post(`/api/practice/sessions/${session.session_id}/complete`);
       setSession(null);
@@ -151,8 +171,16 @@ export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinishe
                 <strong>{t("practice.done")}</strong>
               </p>
             )}
-            <button type="button" className="secondary" onClick={() => void finish()} disabled={busy}>
-              {t("common.back")}
+            {finished ? (
+              <button type="button" onClick={() => void complete()} disabled={busy}>
+                {t("practice.complete")}
+              </button>
+            ) : (
+              <p className="muted">{t("practice.notFinished")}</p>
+            )}
+            <p className="muted">{t("practice.leaveHint")}</p>
+            <button type="button" className="secondary" onClick={() => void leave()} disabled={busy}>
+              {t("practice.leave")}
             </button>
           </>
         )}

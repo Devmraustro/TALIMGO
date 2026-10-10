@@ -306,8 +306,12 @@ class PracticeStartIn(BaseModel):
 class PracticeSessionOut(BaseModel):
     session_id: str
     objective_id: str
+    status: str
     item: ItemPublic | None
     answered: int
+    # `target_items` is the frozen completion target and `total` its display alias; both are
+    # persisted on the session so they cannot change between requests.
+    target_items: int
     total: int
     feedback: AnswerFeedback | None = None
 

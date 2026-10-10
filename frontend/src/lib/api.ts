@@ -234,8 +234,11 @@ export interface Lesson {
 export interface PracticeSession {
   session_id: string;
   objective_id: string;
+  status: "in_progress" | "completed" | "abandoned";
   item: Item | null;
   answered: number;
+  /** The completion target frozen when the session was created; `total` is its display alias. */
+  target_items: number;
   total: number;
   feedback: AnswerFeedback | null;
 }

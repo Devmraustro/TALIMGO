@@ -272,9 +272,15 @@ class PracticeSession(Base):
     goal_id: Mapped[str | None] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
     plan_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     objective_id: Mapped[str] = mapped_column(ForeignKey("objectives.id"), index=True)
-    status: Mapped[str] = mapped_column(String(20), default="in_progress")
+    status: Mapped[str] = mapped_column(String(20), default="in_progress")  # in_progress|completed|abandoned
+    # The session's completion target, frozen when the session is created: `target_items` is what was
+    # requested and `item_ids` is the resolved plan (the requested size clamped to the item pool).
+    # Both are persisted so every later request sees the same length and the same next question.
+    target_items: Mapped[int] = mapped_column(Integer, default=0)
+    item_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    abandoned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PracticeResponse(Base):

@@ -37,22 +37,17 @@ def _answered_count(db: Db, session: PracticeSession) -> int:
     return len(db.scalars(select(PracticeResponse.id).where(PracticeResponse.session_id == session.id)).all())
 
 
-def _state(
-    db: Db,
-    session: PracticeSession,
-    *,
-    size: int = DEFAULT_SESSION_SIZE,
-    feedback: dict | None = None,
-) -> PracticeSessionOut:
-    answered = _answered_count(db, session)
-    remaining = assessment.practice_items(db, session, size=size) if session.status == "in_progress" else []
-    item = remaining[0] if remaining else None
+def _state(db: Db, session: PracticeSession, *, feedback: dict | None = None) -> PracticeSessionOut:
+    answered, target = assessment.practice_progress(db, session)
+    item = assessment.next_practice_item(db, session)
     return PracticeSessionOut(
         session_id=session.id,
         objective_id=session.objective_id,
+        status=session.status,
         item=ItemPublic(**item_public(item)) if item is not None else None,
         answered=answered,
-        total=answered + len(remaining),
+        target_items=target,
+        total=target,
         feedback=AnswerFeedback(**feedback) if feedback else None,
     )
 
@@ -64,6 +59,7 @@ def start_session(payload: PracticeStartIn, user: CurrentUser, db: Db) -> Practi
             db,
             user,
             objective_id=payload.objective_id,
+            size=payload.size,
             goal_id=payload.goal_id,
             plan_item_id=payload.plan_item_id,
         )
@@ -72,7 +68,7 @@ def start_session(payload: PracticeStartIn, user: CurrentUser, db: Db) -> Practi
     except assessment.AssessmentError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     db.commit()
-    return _state(db, session, size=payload.size)
+    return _state(db, session)
 
 
 @router.get("/sessions/{session_id}", response_model=PracticeSessionOut)
@@ -92,26 +88,49 @@ def answer(session_id: str, payload: PracticeAnswerIn, user: CurrentUser, db: Db
             response=payload.response,
             used_hint=payload.used_hint,
         )
-    except assessment.AssessmentError as exc:
+    except assessment.AssessmentConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except assessment.AssessmentError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     db.commit()
     return _state(db, session, feedback=result["feedback"])
 
 
 @router.post("/sessions/{session_id}/complete", response_model=PracticeSessionOut)
 def complete_session(session_id: str, user: CurrentUser, db: Db) -> PracticeSessionOut:
+    """Complete a session that has answered every planned question.
+
+    Completion is what marks the linked roadmap item done, so it is validated server-side: an
+    untouched or partially answered session is refused (409) and the roadmap item stays pending.
+    """
     session = _session_for_user(db, session_id, user.id)
-    if session.status == "in_progress":
-        session.status = "completed"
-        session.completed_at = utcnow()
-        if session.plan_item_id:
-            # Verify ownership at the point of the write as well: a session row that points at
-            # another learner's plan item (a bug, or data written by an older build) must never
-            # tick that item off. Nothing is repaired silently; the item is simply left alone.
-            plan_item = assessment.plan_item_for_user(db, session.plan_item_id, user.id)
-            if plan_item is not None and plan_item.status != "completed":
-                plan_item.status = "completed"
-        db.commit()
+    try:
+        assessment.complete_practice(db, session)
+    except assessment.AssessmentConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if session.plan_item_id:
+        # Ownership is verified at the point of the write: a session row pointing at another
+        # learner's plan item must never tick it off. Nothing is repaired silently.
+        plan_item = assessment.plan_item_for_user(db, session.plan_item_id, user.id)
+        if plan_item is not None and plan_item.status != "completed":
+            plan_item.status = "completed"
+    db.commit()
+    return _state(db, session)
+
+
+@router.post("/sessions/{session_id}/abandon", response_model=PracticeSessionOut)
+def abandon_session(session_id: str, user: CurrentUser, db: Db) -> PracticeSessionOut:
+    """Leave a session without losing recorded answers.
+
+    Distinct from completion: the roadmap item stays pending and the session can never be completed
+    or answered again. This is what the interface's "leave" action calls.
+    """
+    session = _session_for_user(db, session_id, user.id)
+    try:
+        assessment.abandon_practice(db, session)
+    except assessment.AssessmentConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    db.commit()
     return _state(db, session)
 
 
