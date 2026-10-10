@@ -12,8 +12,10 @@ and transfer performance rather than exposure (master reference §4.2, §22.3).
 
 ## Decision
 
-**Model version:** `mastery-v1`. One active model, identified together with its parameters. An estimate
-carrying any other version is **rejected** as stale input rather than mixed.
+**Model version:** the active version is `mastery-v2` (2026-10-11). One active model, identified
+together with its parameters. An estimate carrying any other version is **rejected** as stale input
+rather than mixed. `mastery-v1` folded every evidence record it was given; `mastery-v2` consumes only
+mastery-bearing kinds — see **ADR 0006**, which also defines how cached `v1` rows are rebuilt.
 
 **Unit of knowledge:** an *objective* — a stable, assessable learning target that content references
 rather than owns. A material change in what must be learned creates a new objective.

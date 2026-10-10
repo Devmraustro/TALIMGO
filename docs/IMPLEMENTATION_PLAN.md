@@ -211,3 +211,38 @@ returns 409 with the attempt unchanged and the completed check reports the new p
 
 Still true: no local model runtime exists in this environment, so no real inference and no Arabic
 model-quality evaluation has been performed here.
+
+---
+
+## 7. Hardening sprint (2026-10-11)
+
+Each entry below follows the same protocol: failing regression test first, smallest correct fix,
+focused tests, then the full battery. Nothing here is claimed as reviewed by a human; it is what the
+automated gates and the recorded runs prove.
+
+### 7.1 The mastery evidence boundary (ADR 0006, model `mastery-v2`)
+
+**Defect.** `mastery.replay()` folded every evidence record, so `kind="diagnostic"` starting-check
+answers counted as unassisted successes and failures. Three spaced correct starting-check answers
+promoted an objective to `retaining` (with stability and a retrievability curve) and two wrong ones
+demoted a genuinely retaining objective — a direct contradiction of ADR 0005, visible to learners
+through `/api/practice/progress/mastery` and the dashboard.
+
+**Fix.** One predicate, one boundary: `MASTERY_EVIDENCE_KINDS = {"practice", "assessment",
+"project"}`; `replay()` drops every other kind before the fold, so a diagnostic can neither count,
+establish a delayed success, touch stability, refresh `last_evidence_at` nor demote. Diagnostic-only
+objectives therefore have no estimate at all. Model version bumped to `mastery-v2`; `load_estimates`
+rebuilds any row carrying another version, and a full recompute prunes rows the new fold no longer
+produces.
+
+**Evidence.** `backend/tests/test_mastery_evidence_boundary.py` (10 tests): the declared boundary;
+three spaced diagnostic successes producing no estimate; the fold being byte-identical with and
+without diagnostic records; diagnostic failures unable to demote a retaining objective; a diagnostic
+success unable to extend stability or delay review; determinism under shuffling; a diagnostic-only
+learner having zero recorded mastery while diagnostic evidence is still listed; the provisional
+confirmation check surviving on a plan with zero retaining objectives; a cached `v1` retaining row
+being rebuilt away and pruned; and a practice-backed estimate being restamped `mastery-v2` with the
+recomputed values. `tests/test_api_journey.py` was updated deliberately: `mastery_summary.recorded`
+is now 0 after the starting check and ≥ 1 after the first practice answer.
+
+Full suite after the change: **210 passed, 1 skipped**.

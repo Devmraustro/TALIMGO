@@ -64,7 +64,10 @@ def test_full_journey_goal_to_measured_progress(client) -> None:
     assert action["kind"] in {"learn", "practice", "review", "assess", "build", "diagnostic", "idle"}
     assert action["rationale"]
     assert action["evidence_basis"]
-    assert data["mastery_summary"]["recorded"] >= 1
+    # The starting check records evidence and informs the plan, but it never establishes mastery
+    # (ADR 0006): no estimate exists until the learner actually practises the objective.
+    assert data["mastery_summary"]["recorded"] == 0
+    assert data["recent_evidence"], "diagnostic evidence must still be reported to the learner"
 
     # --- LEARN + PRACTICE ---
     objective_id = action["objective_id"] or "py:values"
@@ -97,6 +100,8 @@ def test_full_journey_goal_to_measured_progress(client) -> None:
     entry = next(row for row in mastery if row["objective_id"] == objective_id)
     assert entry["phase"] in {"acquiring", "retaining"}
     assert entry["evidence_count"] >= 1
+    after_practice = client.get("/api/dashboard").json()
+    assert after_practice["mastery_summary"]["recorded"] >= 1, "practice evidence creates the estimate"
 
     # Completing the session marks the plan item done, so the dashboard moves on.
     completed = client.post(f"/api/practice/sessions/{session_body['session_id']}/complete")

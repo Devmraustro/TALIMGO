@@ -80,8 +80,20 @@ def _records_for(db: DbSession, user_id: str, objective_id: str | None = None) -
 def recompute_mastery(
     db: DbSession, user_id: str, *, objective_id: str | None = None
 ) -> dict[str, KnowledgeEstimate]:
-    """Replay evidence and refresh the cached projection. Deterministic and repeatable."""
+    """Replay evidence and refresh the cached projection. Deterministic and repeatable.
+
+    Rows the replay no longer produces are deleted: after the ADR 0006 evidence boundary a
+    diagnostic-only objective has no estimate, and a leftover cache row must not resurrect it
+    or force a rebuild on every read.
+    """
     estimates = mastery.replay(_records_for(db, user_id, objective_id))
+
+    stale_query = select(MasteryEstimate).where(MasteryEstimate.user_id == user_id)
+    if objective_id is not None:
+        stale_query = stale_query.where(MasteryEstimate.objective_id == objective_id)
+    for row in db.scalars(stale_query).all():
+        if row.objective_id not in estimates:
+            db.delete(row)
 
     for oid, estimate in estimates.items():
         row = db.scalar(
@@ -126,10 +138,16 @@ def load_estimates(db: DbSession, user_id: str) -> dict[str, KnowledgeEstimate]:
         for row in rows
     }
 
-    # A missing objective with recorded evidence means the cache is incomplete: rebuild.
-    evidence_objectives = set(
-        db.scalars(select(Evidence.objective_id).where(Evidence.user_id == user_id)).all()
-    )
+    # A missing objective with *mastery-bearing* recorded evidence means the cache is incomplete:
+    # rebuild. Diagnostic-only evidence produces no estimate at all (ADR 0006), so it must not
+    # trigger a rebuild on every read.
+    evidence_objectives = {
+        objective_id
+        for objective_id, kind in db.execute(
+            select(Evidence.objective_id, Evidence.kind).where(Evidence.user_id == user_id)
+        ).all()
+        if mastery.affects_mastery(kind)
+    }
     if evidence_objectives - set(estimates):
         return recompute_mastery(db, user_id)
     return estimates

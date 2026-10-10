@@ -1,10 +1,16 @@
-"""Mastery model v1 — deterministic, pure, replayable.
+"""Mastery model — deterministic, pure, replayable.
 
-Specification: ``docs/adr/0004-mastery-model-v1.md``.
+Specification: ``docs/adr/0004-mastery-model-v1.md`` (model) and
+``docs/adr/0006-mastery-evidence-boundary.md`` (which evidence may affect mastery).
+
 Invariants:
   * Evidence is the source of truth; estimates are derived and disposable.
   * One active model version. An estimate carrying another version is stale input and is
     rejected rather than mixed.
+  * **Only mastery-bearing evidence kinds are folded.** A starting-check answer is recorded,
+    reported and used for placement and planning, but it can never contribute to mastery
+    (ADR 0005, ADR 0006). The fold ignores non-mastery evidence *entirely*: it cannot
+    increment a counter, establish a delayed success, touch stability or refresh review.
   * No I/O, no clock, no randomness: ``now`` is always an argument.
 """
 
@@ -17,7 +23,20 @@ from typing import Literal
 
 from app.learning.types import EvidenceRecord, KnowledgeEstimate, Phase
 
-MODEL_VERSION = "mastery-v1"
+# v2 (2026-10-11): the fold ignores non-mastery-bearing evidence kinds. The parameters are
+# unchanged; the version exists so caches written by the v1 fold — which counted diagnostic
+# successes and failures — are detected as stale and rebuilt (ADR 0006).
+MODEL_VERSION = "mastery-v2"
+
+# The evidence boundary. `practice`, `assessment` and `project` are attempts at the objective
+# itself; `diagnostic` answers place the learner and inform planning only (ADR 0005).
+MASTERY_EVIDENCE_KINDS = frozenset({"practice", "assessment", "project"})
+
+
+def affects_mastery(kind: str) -> bool:
+    """May evidence of this kind move the mastery model at all?"""
+    return kind in MASTERY_EVIDENCE_KINDS
+
 
 # Model parameters. These are PLACEHOLDERS to be validated against recorded learner evidence;
 # changing any of them is a model-version change (ADR 0004).
@@ -55,13 +74,17 @@ def check_version(estimate: KnowledgeEstimate) -> None:
 
 
 def replay(records: list[EvidenceRecord]) -> dict[str, KnowledgeEstimate]:
-    """Fold evidence into estimates, per objective.
+    """Fold mastery-bearing evidence into estimates, per objective.
 
     Ordering is ``(occurred_at, id)`` so the result never depends on arrival order and late
-    evidence is absorbed correctly.
+    evidence is absorbed correctly. Evidence kinds outside :data:`MASTERY_EVIDENCE_KINDS` are
+    dropped before the fold, so an objective whose only evidence is a starting check has no
+    estimate at all (``phase_for`` reports ``unseen``).
     """
     grouped: dict[str, list[EvidenceRecord]] = {}
     for record in records:
+        if not affects_mastery(record.kind):
+            continue
         grouped.setdefault(record.objective_id, []).append(record)
 
     estimates: dict[str, KnowledgeEstimate] = {}

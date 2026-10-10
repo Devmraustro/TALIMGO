@@ -28,7 +28,8 @@ A correct starting-check answer on a **hard** item (item difficulty ≥ 3) marks
    the text that answers it. The plan validator enforces this (`E_ASSESS_WITH_LESSON`).
 4. The mastery model is not touched. The objective still has to earn `retaining` through unassisted,
    spaced success, exactly like any other objective. A failed confirmation check simply routes the
-   learner back to the lesson.
+   learner back to the lesson. *(Follow-up: this was intended but not enforced until **ADR 0006**
+   excluded `diagnostic` evidence from the mastery fold and bumped the model to `mastery-v2`.)*
 5. A correct answer on an **easy** item (difficulty ≤ 2) grants nothing: weak evidence is not
    evidence. Those objectives are planned as practice.
 
@@ -52,6 +53,10 @@ lesson to `assess` steps at all.
 * `backend/app/learning/roadmap.py` — `provisional_known` handling, `lesson_id=None`, validation errors.
 * `backend/app/services/plans.py` — `_provisionally_known()` derives the set from recorded diagnostic
   answers (correct and difficulty ≥ 3).
+* `backend/app/learning/mastery.py` — `MASTERY_EVIDENCE_KINDS`, `affects_mastery()`, the fold itself
+  (ADR 0006).
+* `backend/tests/test_mastery_evidence_boundary.py` — the boundary, the provisional check surviving
+  it, and rebuild/prune of cached `v1` estimates.
 * `backend/tests/test_roadmap_validation.py::test_provisionally_known_objectives_become_confirmation_checks`
 * `backend/tests/test_api_journey.py::test_full_journey_goal_to_measured_progress` — a full-marks
   diagnostic must yield confirmation checks, not first-time lessons.

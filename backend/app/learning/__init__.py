@@ -6,8 +6,10 @@ and is the system of record for mastery, grading and planning decisions.
 
 from app.learning.grading import grade
 from app.learning.mastery import (
+    MASTERY_EVIDENCE_KINDS,
     MODEL_VERSION,
     StaleModelVersionError,
+    affects_mastery,
     explain,
     needs_review,
     phase_for,
@@ -35,6 +37,7 @@ from app.learning.types import (
 )
 
 __all__ = [
+    "MASTERY_EVIDENCE_KINDS",
     "MODEL_VERSION",
     "CurriculumNode",
     "EvidenceRecord",
@@ -48,6 +51,7 @@ __all__ = [
     "StaleModelVersionError",
     "ValidationIssue",
     "ValidationReport",
+    "affects_mastery",
     "build_weeks",
     "choose_next_action",
     "explain",
