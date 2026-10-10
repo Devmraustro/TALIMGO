@@ -17,9 +17,10 @@ Last updated: 2026-10-10.
 | Third-party audit of the three named candidates | IMPLEMENTED | `docs/OPEN_SOURCE_REUSE_AUDIT.md` |
 | Stack decision | CONFIRMED (owner-delegated) | `docs/adr/0001-stack-and-repository-layout.md` |
 | Local-only AI policy | CONFIRMED | `AGENTS.md` §2, `docs/adr/0002-local-ai-only.md` |
-| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | IN PROGRESS | see checkpoint table |
-| Frontend slice | IN PROGRESS | see checkpoint table |
-| Real local-model integration verified | BLOCKED (environment) | no local runtime installed in this sandbox; the adapter is tested against a mock local endpoint and a skip-if-unavailable integration test |
+| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | `pytest` 175 passed, 1 skipped; `ruff check app tests scripts` clean; `bandit -r app` clean; `alembic check` reports no drift — see §5 |
+| Frontend slice | TESTED | `tsc --noEmit` clean; `vitest run` 16 passed, 1 skipped; `vite build` 259 kB JS (80 kB gzip); live-stack UI smoke test passes — see §5 |
+| Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` (66 files, 3 URL literals); proven to fail on a planted violation |
+| Real local-model integration verified | BLOCKED (environment) | no local runtime installed in this sandbox; the adapter is tested against a mock local endpoint and a skip-if-unavailable offline integration test (`pytest -m local_model`), which skips with an explicit reason here |
 
 ---
 
@@ -27,12 +28,12 @@ Last updated: 2026-10-10.
 
 | # | Checkpoint | Status | Acceptance criteria | Evidence |
 |---|---|---|---|---|
-| 1 | Repository foundation | IMPLEMENTED | Reference committed unchanged; `AGENTS.md`; stack ADR; reuse audit; local-AI architecture; threat model; CI workflow | commit `docs: foundation` |
-| 2 | Core application skeleton | see below | App boots, config validated at startup, migrations apply, auth works, tests pass | `pytest -q` |
-| 3 | Learning journey slice | see below | Goal → diagnostic → validated roadmap → dashboard next action, end to end via API and UI | `pytest -q`, `npm test` |
-| 4 | Local AI tutor | see below | Tutor is grounded in curriculum, output validated, local-only enforced, explicit failure when unavailable | `pytest -q -k ai` |
-| 5 | Learning outcomes | PARTIAL | Quizzes with deterministic grading, evidence persistence, mastery estimates, adaptive next action | `pytest -q -k mastery` |
-| 6 | Hardening | NOT STARTED | Security review, dependency/licence audit, accessibility, performance, deployment docs | — |
+| 1 | Repository foundation | TESTED | Reference committed unchanged; `AGENTS.md`; stack ADR; reuse audit; local-AI architecture; threat model | commit `086ba5f`; `TALIMGO_MASTER_REFERENCE.md` sha256 unchanged |
+| 2 | Core application skeleton | TESTED | App boots, config validated at startup, migrations apply and match the models, auth works | commit `e30baea`; `tests/test_migrations.py`; `alembic upgrade head` + `alembic check` |
+| 3 | Learning journey slice | TESTED | Goal → diagnostic → validated roadmap → dashboard next action, end to end through the API and the real interface | commit `1008a52`; `tests/test_api_journey.py`; live journey + UI smoke test (§5) |
+| 4 | Local AI tutor | TESTED (mock endpoint), BLOCKED (real runtime) | Tutor grounded in retrieved curriculum, strict JSON validated, citation allow-list, local-only enforced, explicit failure when unavailable; no fallback path exists | commit `14c0be3`; `tests/test_ai_local_only.py`, `tests/test_tutor_local.py` |
+| 5 | Learning outcomes | PARTIAL | Quizzes with deterministic grading, evidence persistence, mastery estimates, adaptive next action, confirmation checks for provisional knowledge; no project/portfolio work yet | `tests/test_grading.py`, `tests/test_mastery_model.py`, ADR 0005 |
+| 6 | Hardening | PARTIAL | Lint, static security, dependency and licence gates, migration drift check, automated a11y linting; no manual accessibility audit, no penetration test, deployment docs still to write | `ci.yml`; `scripts/check_licences.py`; `scripts/check-licences.mjs` |
 
 Each checkpoint is developed as: define observable behaviour and tests → smallest coherent change →
 run focused tests → run lint/type/build/security → inspect the UI for UI changes → independent review
@@ -107,6 +108,15 @@ reference + rules  ──▶  stack decision  ──▶  backend skeleton ──
                                                               tutor (grounded, local)
 ```
 
+### Checkpoint 3 evidence — the probe that changed the product
+
+Walking the journey against the running stack (script recorded in §5) showed that a learner who
+answered **every** starting-check item correctly still received twelve full first-time lessons. The
+planner had no concept of "already shown this". The fix — provisional knowledge yields a short
+confirmation check, never mastery, and an `assess` step never carries lesson text — is recorded in
+`docs/adr/0005-starting-check-evidence-not-mastery.md` and covered by two tests. This is the kind of
+defect that only a real walk-through finds; unit tests around the old behaviour were all green.
+
 Known dependencies and risks for this iteration:
 
 | Risk | Impact | Handling |
@@ -129,3 +139,37 @@ Known dependencies and risks for this iteration:
 - No penetration test; the threat model lists what is untested.
 - Real-model quality evaluation (accuracy, hallucination, Arabic quality) is FUTURE and requires a
   local runtime plus a versioned evaluation set.
+
+---
+
+## 5. Verification log — 2026-10-10
+
+Every command below was executed in this workspace; the output shown is the observed output.
+
+| Check | Command | Observed |
+|---|---|---|
+| Backend tests | `cd backend && .venv/bin/python -m pytest` | `175 passed, 1 skipped, 8 warnings in 27.75s` (the skip is the offline local-model test, with an explicit reason) |
+| Determinism of ordering | `PYTHONHASHSEED=0/12345/999 pytest tests/test_api_auth.py tests/test_api_journey.py` | `25 passed` in each run (a weekday-ordering bug that only appeared under some hash seeds was found and fixed) |
+| Backend lint / format | `ruff check app tests scripts`; `ruff format --check app tests scripts` | `All checks passed!`; `58 files already formatted` |
+| Static security | `bandit -q -r app` | `0` issues (a bidirectional-control-character finding in authored Arabic content and two `assert`-as-validation findings were fixed, not suppressed) |
+| Migrations | `alembic upgrade head` then `alembic check` on a fresh database | upgrade creates 23 tables; `No new upgrade operations detected.`; `tests/test_migrations.py` also covers downgrade → upgrade |
+| Frontend type check | `cd frontend && npx tsc --noEmit` | clean |
+| Frontend tests | `npx vitest run` | 4 files passed, 1 skipped; 16 tests passed, 1 skipped |
+| Frontend production build | `npx vite build` | `dist/index.html` 0.71 kB, CSS 6.36 kB, JS 259.42 kB (gzip 80.07 kB) |
+| Live API journey | register → goal → 12-item adaptive diagnostic → plan → practice through the Vite proxy | `201, 201, placement {assumed_known: 5, likely_known: 7, needs_work: 0}, plan 200, validation ok: true`; 12 steps: 6 `practice`, 6 `assess` |
+| Real-interface smoke test | `TALIMGO_UI_SMOKE=1 npx vitest run src/ui-smoke.test.tsx` against the running stack | `1 passed` (667 ms): the real sign-up form, the real goal form, then the engine's next action opens the starting check and the first question is served |
+| Local-only AI gate | `python scripts/check_no_external_ai.py` | `passed (66 source files, 3 URL literals, no hosted providers imported or declared)`; planted `https://api.openai.com/...` + `import openai` → exit 1 with two violations |
+| Dependency licences | `python scripts/check_licences.py`; `node scripts/check-licences.mjs` | `passed (47 distributions)`; `passed (186 packages)` |
+
+### Honest limitations of this evidence
+
+* **No browser in the sandbox.** The UI walk-through is a jsdom *real-stack* test (real components,
+  real forms, real API through the real proxy). It is not a substitute for a human review of layout,
+  RTL rendering and screen-reader behaviour, which remains outstanding.
+* **No local model runtime installed here**, so no real inference was executed in this environment.
+  Everything around the model (endpoint policy, prompt construction, retrieval, schema validation,
+  rejection paths, explicit failure) is tested against a mock local endpoint; quality evaluation
+  against a versioned item set is FUTURE.
+* **The skipped test is reported, not hidden**: CI runs `pytest -m local_model -rs` and shows the skip
+  reason.
+* Coverage percentages are not cited as evidence of correctness; no coverage number was measured.
