@@ -8,9 +8,9 @@ catches the class of bug where models and migrations drift apart.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
-import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
@@ -147,14 +147,14 @@ def test_alembic_cli_reports_the_head_revision(tmp_path, monkeypatch) -> None:
         "TALIMGO_DATABASE_URL": database_url,
         "PYTHONPATH": str(BACKEND),
     }
+    # Invoke Alembic through the interpreter running the tests, so this works in any environment
+    # (virtualenv, system install, CI) instead of assuming a specific layout under backend/.
     completed = subprocess.run(  # fixed argv, no shell
-        [str(BACKEND / ".venv" / "bin" / "alembic"), "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "upgrade", "head"],
         cwd=BACKEND,
         env=env,
         capture_output=True,
         text=True,
         check=False,
     )
-    if completed.returncode != 0 and "No such file" in completed.stderr:
-        pytest.skip("virtualenv is not present in this environment")
     assert completed.returncode == 0, completed.stderr

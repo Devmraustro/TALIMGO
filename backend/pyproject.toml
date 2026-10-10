@@ -32,6 +32,9 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The test suite imports shared helpers as `tests.conftest`; make the project root importable no
+# matter how pytest was invoked (the `pytest` console script does not add the cwd to sys.path).
+pythonpath = ["."]
 addopts = "-q --strict-markers"
 markers = [
     "local_model: requires a real local model runtime (skipped when unavailable)",
