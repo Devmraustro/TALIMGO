@@ -198,6 +198,10 @@ before being fixed; the tests stay in the suite.
 | 3 | `build_grounding()` quoted any lesson id under any objective, corrupting the citation allow-list | a lesson belonging to another objective raises `GroundingMismatchError` before a prompt is built, and the endpoint answers 400; an *unknown* id still falls back to the requested objective's own lesson so a stale link cannot break tutoring | `tests/test_tutor_grounding.py` (5 tests, incl. proof the model is never called and no allowance is consumed) |
 | 4 | `_placement()` only upgraded statuses, so an incorrect answer after a correct one was silently ignored | one explicit rule in `aggregate_placement()`: every answer is counted, any incorrect answer leaves the objective at `needs_work`, otherwise `assumed_known` when the hardest correct item was difficulty >= 3 and `likely_known` for easy-only; counts and the hardest difficulty are reported, and the rule text is returned with the placement | `tests/test_placement_aggregation.py` (9 tests: correct-then-incorrect, incorrect-then-correct, mixed difficulty, independent objectives, determinism, stored attempt) |
 
+Committed as `fc361c9` (fixes and regression tests) and `504ec3a` (this record); CI run
+`38095252098` on that head passed all four jobs (backend 59 s, dependency and licence audit 23 s,
+frontend 16 s, local-only AI 6 s).
+
 Verification after the fixes: backend **200 passed, 1 skipped** (the skip is still the offline
 local-model test); `ruff check`/`ruff format --check` clean over `app tests scripts`; `bandit -r app`
 0 findings; `alembic upgrade head` + `alembic check` report no drift; `scripts/check_no_external_ai.py`
