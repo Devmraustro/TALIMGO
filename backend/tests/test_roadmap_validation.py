@@ -200,6 +200,7 @@ def test_cyclic_curriculum_fails_validation_even_if_steps_look_ordered() -> None
     )
     assert any(issue.code == "E_CURRICULUM_CYCLE" for issue in report.errors)
 
+
 def test_provisionally_known_objectives_become_confirmation_checks() -> None:
     """A hard diagnostic item answered correctly must not produce a full first-time lesson."""
     from app.learning.roadmap import generate_plan
