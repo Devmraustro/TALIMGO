@@ -3,6 +3,11 @@
 Only authored curriculum material is retrieved — no web search, no learner documents (yet), and
 nothing is fetched from outside TALIMGO. Every citation the model is allowed to use is an ID that
 exists in this context, which is what makes citation validation meaningful.
+
+Integrity rule: the context may only ever contain material belonging to the requested objective. A
+lesson that belongs to a different objective is refused outright rather than being quoted under the
+wrong heading — otherwise the tutor would answer about material the learner never asked for and the
+citation allow-list would name a lesson that does not match the question.
 """
 
 from __future__ import annotations
@@ -15,6 +20,10 @@ from app.curriculum.registry import localised
 from app.models import Lesson, Objective
 
 MAX_CONTEXT_CHARS = 6000
+
+
+class GroundingMismatchError(LookupError):
+    """The supplied lesson does not belong to the requested objective."""
 
 
 @dataclass(frozen=True)
@@ -55,7 +64,14 @@ def build_grounding(
 
     lesson: Lesson | None = None
     if lesson_id:
-        lesson = db.get(Lesson, lesson_id)
+        candidate = db.get(Lesson, lesson_id)
+        if candidate is not None and candidate.objective_id != objective.id:
+            raise GroundingMismatchError(
+                f"Lesson {lesson_id!r} belongs to objective {candidate.objective_id!r}, not {objective.id!r}."
+            )
+        # An *unknown* id falls back to the objective's own lesson: a stale link must not break
+        # tutoring, and the fallback still belongs to the objective being asked about.
+        lesson = candidate
     if lesson is None:
         lesson = (
             db.query(Lesson).filter(Lesson.objective_id == objective.id).order_by(Lesson.sequence).first()

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.deps import CurrentUser, Db
 from app.learning.mastery import RETRIEVABILITY_TARGET, retrievability
-from app.models import Evidence, Objective, PlanItem, PracticeResponse, PracticeSession
+from app.models import Evidence, Objective, PracticeResponse, PracticeSession
 from app.schemas import (
     AnswerFeedback,
     ItemPublic,
@@ -67,6 +67,8 @@ def start_session(payload: PracticeStartIn, user: CurrentUser, db: Db) -> Practi
             goal_id=payload.goal_id,
             plan_item_id=payload.plan_item_id,
         )
+    except assessment.AssessmentConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except assessment.AssessmentError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     db.commit()
@@ -103,7 +105,10 @@ def complete_session(session_id: str, user: CurrentUser, db: Db) -> PracticeSess
         session.status = "completed"
         session.completed_at = utcnow()
         if session.plan_item_id:
-            plan_item = db.get(PlanItem, session.plan_item_id)
+            # Verify ownership at the point of the write as well: a session row that points at
+            # another learner's plan item (a bug, or data written by an older build) must never
+            # tick that item off. Nothing is repaired silently; the item is simply left alone.
+            plan_item = assessment.plan_item_for_user(db, session.plan_item_id, user.id)
             if plan_item is not None and plan_item.status != "completed":
                 plan_item.status = "completed"
         db.commit()

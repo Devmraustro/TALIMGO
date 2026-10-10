@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
 from app.ai.adapter import LocalModelUnavailable
+from app.ai.grounding import GroundingMismatchError
 from app.ai.schemas import TutorOutputRejected
 from app.ai.tutor import AiBudgetExceededError, AiDisabledError, answer, usage_today
 from app.config import get_settings
@@ -60,6 +61,13 @@ def ask(payload: TutorAskIn, user: CurrentUser, db: Db) -> TutorReplyOut:
             question=payload.question,
             locale=profile_locale,
         )
+    except GroundingMismatchError as exc:
+        # The lesson named does not belong to the objective: refuse before any prompt is built, so
+        # the model is never called with mismatched material.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That lesson does not belong to that objective.",
+        ) from exc
     except AiDisabledError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except AiBudgetExceededError as exc:

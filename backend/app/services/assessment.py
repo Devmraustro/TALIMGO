@@ -4,10 +4,20 @@ Item selection here is deliberate and simple: difficulty follows the learner's r
 inside the diagnostic and the mastery phase during practice, and the tie-breaks are stable, so the
 same state always produces the same next item. Adaptive bandit-style selection is recorded as FUTURE
 in the implementation plan because it needs calibration data we do not have.
+
+Placement rule (explicit and deterministic — see ``aggregate_placement``):
+  * every answer about an objective is counted; an incorrect answer is never discarded because an
+    earlier answer was correct;
+  * any incorrect answer leaves the objective at ``needs_work`` for this check — a demonstrated
+    failure is decisive inside one short placement, and the roadmap will teach the objective properly;
+  * if every answer was correct, the objective is ``assumed_known`` when the hardest correct answer was
+    difficulty >= 3, and ``likely_known`` when only easy items were answered;
+  * placement is always provisional: mastery still requires unassisted, spaced success (ADR 0004).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import select
@@ -22,6 +32,8 @@ from app.models import (
     Goal,
     Item,
     Objective,
+    Plan,
+    PlanItem,
     PracticeResponse,
     PracticeSession,
     User,
@@ -34,7 +46,11 @@ DIAGNOSTIC_START_DIFFICULTY = 2
 
 
 class AssessmentError(RuntimeError):
-    pass
+    """The requested object is unknown, or belongs to somebody else (reported as 404)."""
+
+
+class AssessmentConflict(AssessmentError):
+    """The request is well-formed but contradicts recorded state (reported as 409)."""
 
 
 # --------------------------------------------------------------------------------------
@@ -148,6 +164,27 @@ def answer_diagnostic(
     if item.id in set(attempt.item_ids or []):
         raise AssessmentError("That item was already answered in this diagnostic.")
 
+    # Everything below is validated *before* anything is graded or written, so a rejected request
+    # leaves no response row, no evidence and no cursor movement.
+    goal = db.get(Goal, attempt.goal_id)
+    path_id = goal.path_id if goal else ""
+    if not path_id:
+        raise AssessmentError("This diagnostic is not linked to a learning path.")
+
+    objective = db.get(Objective, item.objective_id)
+    if objective is None or objective.path_id != path_id:
+        raise AssessmentError("That item does not belong to this learning path.")
+    if not item.is_diagnostic:
+        raise AssessmentError("That item is not part of the starting check.")
+
+    expected = next_diagnostic_item(db, attempt, path_id)
+    if expected is None:
+        raise AssessmentError("This check has no further items to answer.")
+    if expected.id != item.id:
+        raise AssessmentError(
+            "That is not the next item in this check. Answer only the item that was presented."
+        )
+
     outcome: GradeResult = grade(item.kind, item.answer_key, response)
     moment = now or utcnow()
 
@@ -192,8 +229,6 @@ def answer_diagnostic(
         "objective_title": objective.title_en if objective else item.objective_id,
     }
 
-    goal = db.get(Goal, attempt.goal_id)
-    path_id = goal.path_id if goal else ""
     upcoming = next_diagnostic_item(db, attempt, path_id)
     completed = upcoming is None
     if completed:
@@ -219,6 +254,46 @@ def _canonical_answer(item: Item, outcome: GradeResult) -> str:
     return str(accepted[0]) if accepted else ""
 
 
+PLACEMENT_RULE = (
+    "Each answer is counted. Any incorrect answer leaves the objective at needs_work for this check; "
+    "with only correct answers it is assumed_known when the hardest correct item was difficulty 3 or "
+    "more, and likely_known when every answered item was easy."
+)
+HARD_ITEM_DIFFICULTY = 3
+
+
+def aggregate_placement(responses: Sequence[tuple[str, bool, int]]) -> dict[str, dict]:
+    """Combine ``(objective_id, is_correct, difficulty)`` records into one placement per objective.
+
+    Pure and order-independent for the *counts*; the caller supplies records in answer order so the
+    result is reproducible and explainable.
+    """
+    per_objective: dict[str, dict] = {}
+    for objective_id, is_correct, difficulty in responses:
+        entry = per_objective.setdefault(
+            objective_id,
+            {"difficulty": difficulty, "correct": 0, "incorrect": 0, "hardest_correct": 0},
+        )
+        entry["difficulty"] = max(entry["difficulty"], difficulty)
+        if is_correct:
+            entry["correct"] += 1
+            entry["hardest_correct"] = max(entry["hardest_correct"], difficulty)
+        else:
+            entry["incorrect"] += 1
+
+    for entry in per_objective.values():
+        if entry["incorrect"] > 0:
+            entry["status"] = "needs_work"
+            entry["confidence"] = "low"
+        elif entry["hardest_correct"] >= HARD_ITEM_DIFFICULTY:
+            entry["status"] = "assumed_known"
+            entry["confidence"] = "high" if entry["hardest_correct"] >= 4 else "medium"
+        else:
+            entry["status"] = "likely_known"
+            entry["confidence"] = "medium"
+    return per_objective
+
+
 def _placement(db: DbSession, attempt: DiagnosticAttempt) -> dict:
     responses = list(
         db.scalars(
@@ -227,16 +302,12 @@ def _placement(db: DbSession, attempt: DiagnosticAttempt) -> dict:
             .order_by(DiagnosticResponse.answered_at, DiagnosticResponse.id)
         )
     )
-    per_objective: dict[str, dict] = {}
-    for response in responses:
-        entry = per_objective.setdefault(
-            response.objective_id,
-            {"status": "needs_work", "confidence": "low", "difficulty": response.difficulty},
-        )
-        if response.is_correct:
-            entry["status"] = "assumed_known" if response.difficulty >= 3 else "likely_known"
-            entry["confidence"] = "high" if response.difficulty >= 4 else "medium"
-            entry["difficulty"] = max(entry["difficulty"], response.difficulty)
+    per_objective = aggregate_placement(
+        [
+            (response.objective_id, bool(response.is_correct), int(response.difficulty))
+            for response in responses
+        ]
+    )
     summary = {
         "assumed_known": sum(1 for entry in per_objective.values() if entry["status"] == "assumed_known"),
         "likely_known": sum(1 for entry in per_objective.values() if entry["status"] == "likely_known"),
@@ -245,6 +316,7 @@ def _placement(db: DbSession, attempt: DiagnosticAttempt) -> dict:
     return {
         "objectives": per_objective,
         "summary": summary,
+        "rule": PLACEMENT_RULE,
         "note": (
             "Placement is provisional: it reflects one short check and will be revised by your "
             "practice evidence."
@@ -267,6 +339,56 @@ def _difficulty_band(db: DbSession, user_id: str, objective_id: str) -> int:
     return min(5, 2 + estimate.unassisted_successes)
 
 
+def _resolve_practice_context(
+    db: DbSession,
+    user: User,
+    *,
+    objective_id: str,
+    goal_id: str | None,
+    plan_item_id: str | None,
+) -> str | None:
+    """Validate that the learner may practise this objective in this context.
+
+    A practice session may only reference the learner's **own** goal and plan item, and the plan item
+    must be for the objective being practised. References to anything else are reported as unknown
+    (404) so another learner's identifiers are never confirmed to exist; inconsistencies inside the
+    learner's own data are conflicts (409).
+
+    Returns the goal id the session belongs to (derived from the plan item when not supplied).
+    """
+    resolved_goal_id: str | None = None
+    if goal_id is not None:
+        goal = db.get(Goal, goal_id)
+        if goal is None or goal.user_id != user.id:
+            raise AssessmentError("Unknown goal.")
+        resolved_goal_id = goal.id
+
+    if plan_item_id is not None:
+        plan_item = db.get(PlanItem, plan_item_id)
+        plan = db.get(Plan, plan_item.plan_id) if plan_item is not None else None
+        if plan_item is None or plan is None or plan.user_id != user.id:
+            # Deliberately the same message as an unknown id: existence is not disclosed.
+            raise AssessmentError("Unknown plan item.")
+        if plan_item.objective_id != objective_id:
+            raise AssessmentConflict("That plan item belongs to a different objective.")
+        if resolved_goal_id is not None and plan.goal_id != resolved_goal_id:
+            raise AssessmentConflict("That plan item belongs to a different goal.")
+        resolved_goal_id = plan.goal_id
+
+    return resolved_goal_id
+
+
+def plan_item_for_user(db: DbSession, plan_item_id: str, user_id: str) -> PlanItem | None:
+    """Fetch a plan item only if it belongs to this learner's own plan."""
+    plan_item = db.get(PlanItem, plan_item_id)
+    if plan_item is None:
+        return None
+    plan = db.get(Plan, plan_item.plan_id)
+    if plan is None or plan.user_id != user_id:
+        return None
+    return plan_item
+
+
 def start_practice(
     db: DbSession,
     user: User,
@@ -280,9 +402,14 @@ def start_practice(
     objective = db.get(Objective, objective_id)
     if objective is None:
         raise AssessmentError("Unknown objective.")
+
+    resolved_goal_id = _resolve_practice_context(
+        db, user, objective_id=objective_id, goal_id=goal_id, plan_item_id=plan_item_id
+    )
+
     session = PracticeSession(
         user_id=user.id,
-        goal_id=goal_id,
+        goal_id=resolved_goal_id,
         plan_item_id=plan_item_id,
         objective_id=objective_id,
         status="in_progress",
