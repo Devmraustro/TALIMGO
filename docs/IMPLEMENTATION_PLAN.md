@@ -160,6 +160,16 @@ Every command below was executed in this workspace; the output shown is the obse
 | Real-interface smoke test | `TALIMGO_UI_SMOKE=1 npx vitest run src/ui-smoke.test.tsx` against the running stack | `1 passed` (667 ms): the real sign-up form, the real goal form, then the engine's next action opens the starting check and the first question is served |
 | Local-only AI gate | `python scripts/check_no_external_ai.py` | `passed (66 source files, 3 URL literals, no hosted providers imported or declared)`; planted `https://api.openai.com/...` + `import openai` → exit 1 with two violations |
 | Dependency licences | `python scripts/check_licences.py`; `node scripts/check-licences.mjs` | `passed (47 distributions)`; `passed (186 packages)` |
+| CI, first executed run | GitHub Actions run [`38093542327`](https://github.com/Devmraustro/TALIMGO/actions/runs/38093542327) on PR #1 | Frontend **pass** (20s), local-only AI gate **pass** (5s), backend **fail** (21s), dependency audit **fail** (22s) |
+| CI after fixing what the run exposed | run [`38093832336`](https://github.com/Devmraustro/TALIMGO/actions/runs/38093832336) | **all four jobs pass**: backend 51s, dependency/licence audit 24s, frontend 19s, local-only AI gate 5s |
+
+The first CI run failed for two reasons that local execution could not show, and both were fixed
+rather than worked around: the suite imported shared helpers as `tests.conftest`, which only resolves
+when `python -m pytest` puts the working directory on `sys.path` (the `pytest` console script CI uses
+does not — `pythonpath` in `pyproject.toml` now makes it explicit); and `pip-audit` reported the
+interpreter's seeded `pip`/`setuptools` instead of TALIMGO's dependencies, so the job now upgrades the
+build tooling first and still fails on any real finding. The migration test also no longer hard-codes a
+virtualenv path that cannot exist on a CI runner.
 
 ### Honest limitations of this evidence
 
