@@ -343,16 +343,17 @@ def _resolve_practice_context(
     db: DbSession,
     user: User,
     *,
-    objective_id: str,
+    objective: Objective,
     goal_id: str | None,
     plan_item_id: str | None,
 ) -> str | None:
     """Validate that the learner may practise this objective in this context.
 
-    A practice session may only reference the learner's **own** goal and plan item, and the plan item
-    must be for the objective being practised. References to anything else are reported as unknown
-    (404) so another learner's identifiers are never confirmed to exist; inconsistencies inside the
-    learner's own data are conflicts (409).
+    The whole chain has to agree: the goal is the learner's own and on the objective's path, and the
+    plan item belongs to the learner's plan, to that goal and to the objective being practised.
+    References to anything else are reported as unknown (404) with one message per kind, so another
+    learner's identifiers are never confirmed to exist; inconsistencies inside the learner's own data
+    are conflicts (409). Every check runs before the session row is created.
 
     Returns the goal id the session belongs to (derived from the plan item when not supplied).
     """
@@ -361,6 +362,8 @@ def _resolve_practice_context(
         goal = db.get(Goal, goal_id)
         if goal is None or goal.user_id != user.id:
             raise AssessmentError("Unknown goal.")
+        if goal.path_id != objective.path_id:
+            raise AssessmentConflict("That goal is for a different learning path.")
         resolved_goal_id = goal.id
 
     if plan_item_id is not None:
@@ -369,11 +372,16 @@ def _resolve_practice_context(
         if plan_item is None or plan is None or plan.user_id != user.id:
             # Deliberately the same message as an unknown id: existence is not disclosed.
             raise AssessmentError("Unknown plan item.")
-        if plan_item.objective_id != objective_id:
+        if plan_item.objective_id != objective.id:
             raise AssessmentConflict("That plan item belongs to a different objective.")
+        plan_goal = db.get(Goal, plan.goal_id)
+        if plan_goal is None:
+            raise AssessmentError("Unknown plan item.")
+        if plan_goal.path_id != objective.path_id:
+            raise AssessmentConflict("That plan item is for a different learning path.")
         if resolved_goal_id is not None and plan.goal_id != resolved_goal_id:
             raise AssessmentConflict("That plan item belongs to a different goal.")
-        resolved_goal_id = plan.goal_id
+        resolved_goal_id = plan_goal.id
 
     return resolved_goal_id
 
@@ -404,7 +412,7 @@ def start_practice(
         raise AssessmentError("Unknown objective.")
 
     resolved_goal_id = _resolve_practice_context(
-        db, user, objective_id=objective_id, goal_id=goal_id, plan_item_id=plan_item_id
+        db, user, objective=objective, goal_id=goal_id, plan_item_id=plan_item_id
     )
 
     pool = list(db.scalars(select(Item).where(Item.objective_id == objective_id)).all())

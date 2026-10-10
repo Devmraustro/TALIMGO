@@ -288,3 +288,30 @@ so the ownership check is the only thing preventing the write). Frontend:
 
 Full suite after the change: **219 passed, 1 skipped**; `alembic upgrade head` + `alembic check` clean
 with the new revision `8f1c2d4e6a70`.
+
+### 7.3 Practice context: the goal ↔ path ↔ objective ↔ plan-item chain
+
+**Gap.** `_resolve_practice_context()` checked ownership (goal, plan item) and objective agreement but
+never that the goal and the plan item were on the **same learning path** as the objective. A caller
+supplying one of this learner's own goals for a different path was accepted.
+
+**Fix.** The resolver now walks the whole chain before anything is created: the goal must be the
+learner's own *and* on the objective's path; the plan item must belong to the learner's plan, to that
+goal and to the objective being practised; a plan item's own goal must also match the objective's
+path. Foreign references keep answering with one 404 message per kind (existence is never disclosed),
+inconsistencies inside the learner's own data stay 409, and every check runs before a session row or
+evidence row exists.
+
+**Evidence.** `backend/tests/test_practice_context_paths.py` (6 tests) builds a **synthetic second
+path** — objective, item, goal, plan, plan item — because the authored curriculum still has one path:
+a cross-path objective with this learner's goal is refused, a cross-path plan item is refused, a
+consistent context on the synthetic path is accepted (positive control), a plan item whose own goal
+belongs to the objective's path is accepted, foreign and never-existing identifiers are
+indistinguishable, and a rejected context leaves zero sessions and zero evidence.
+
+**Honest limit: multi-path support is UNVERIFIED.** The repository still contains a single authored
+path (`python-foundations`). These tests pin the *validation* a second path will depend on; they do
+not demonstrate that curriculum loading, roadmap generation, diagnostics or the interface behave
+correctly with two or more paths. That remains work for when a second path is authored.
+
+Full suite after the change: **225 passed, 1 skipped**.
