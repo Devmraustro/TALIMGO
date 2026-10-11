@@ -106,4 +106,3 @@ def test_concurrent_claims_cannot_exceed_the_per_learner_limit(client) -> None:
         row = db.get(User, user_id)
         assert row is not None
         assert row.write_rate_count == 3
-
