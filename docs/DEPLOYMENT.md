@@ -207,12 +207,13 @@ verifies the session is rejected, and fails on uncaught page errors, API 5xx res
 another host/port. Failure screenshots and server logs are retained as a short-lived CI artifact.
 
 The same Chromium job runs `axe-core 4.10.3` against WCAG 2.0/2.1/2.2 Level A and AA rules on the English
-registration, goal and diagnostic forms, and on Arabic RTL settings. This catches common machine-detectable
-issues (including many contrast and naming errors) in those representative states. It is **not** a full
-accessibility audit: automated checks cannot establish meaningful screen-reader operation, all keyboard
-focus order, or every content-dependent contrast case. The job uses Vite's development server and a
-disposable database, so it does not prove that the production Nginx CSP permits the built app while
-blocking disallowed sources. The deployed HTTPS build still needs a browser and console check.
+registration, goal and diagnostic forms in light mode, and on Arabic RTL settings plus registration
+after deletion in dark mode. This catches common machine-detectable issues (including many contrast and
+naming errors) in those representative states. It is **not** a full accessibility audit: automated checks
+cannot establish meaningful screen-reader operation, all keyboard focus order, or every content-dependent
+contrast case. The job uses Vite's development server and a disposable database, so it does not prove that
+the production Nginx CSP permits the built app while blocking disallowed sources. The deployed HTTPS build
+still needs a browser and console check.
 
 What CI does **not** cover, and what remains manual: screen-reader behaviour, a human contrast review in
 the actual deployed theme, 200–400% zoom and reflow, complete focus order after dynamic updates, the local

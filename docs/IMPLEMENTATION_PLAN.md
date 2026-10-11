@@ -536,9 +536,10 @@ temporary `axe-core@4.10.3` (Apache-2.0 / MPL-2.0; not shipped) against the real
 Vite's same-origin API proxy. It verifies sign-up, goal creation, a real diagnostic answer, Arabic
 `lang`/`dir`, no horizontal overflow at a 390-pixel viewport, account deletion/session revocation,
 no uncaught page errors, no API 5xx responses, and no requests to another host/port. Axe runs WCAG 2.0,
-2.1 and 2.2 Level A/AA rules on the registration, goal, diagnostic and Arabic settings views. This is a
-targeted automated accessibility gate, **not** a declaration of WCAG conformance; the job uses Vite's
-development server and does not exercise the production Nginx CSP.
+2.1 and 2.2 Level A/AA rules on registration, goal and diagnostic views in light mode and Arabic settings
+plus post-deletion registration in dark mode. This is a targeted automated accessibility gate, **not** a
+declaration of WCAG conformance; the job uses Vite's development server and does not exercise the
+production Nginx CSP.
 
 **Still requires manual/deployed-browser/screen-reader testing (not done, not claimed):** focus *order*
 across a whole page and after dynamic updates; a human contrast review on the deployed themes; zoom and
@@ -658,5 +659,6 @@ through environment variables rather than interpolating them directly into shell
 
 The CI browser job exercises the actual page in Chromium against the real API and Vite proxy, including
 sign-up, goal creation, one diagnostic answer, Arabic RTL, narrow viewport reflow, account deletion and
-session refusal. It is a useful end-to-end regression gate, but it is not a live deployment test or a
-substitute for checking the production edge/CSP and manual accessibility on the actual domain.
+session refusal. Axe checks WCAG A/AA rules across representative light- and dark-theme screens. The
+journey is a useful regression gate, but it is not a live deployment test, a conformance declaration, or
+a substitute for checking the production edge/CSP and manual accessibility on the actual domain.

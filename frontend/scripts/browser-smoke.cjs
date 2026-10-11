@@ -30,6 +30,7 @@ const origin = new URL(baseURL);
 async function main() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1365, height: 900 } });
+  await page.emulateMedia({ colorScheme: "light" });
   const pageErrors = [];
   const externalRequests = [];
   const serverErrors = [];
@@ -93,6 +94,7 @@ async function main() {
 
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("heading", { name: "Settings and your data", exact: true }).waitFor();
+    await page.emulateMedia({ colorScheme: "dark" });
     await page.getByLabel("Interface language", { exact: true }).selectOption("ar");
     await page.waitForFunction(
       () => document.documentElement.lang === "ar" && document.documentElement.dir === "rtl",
@@ -109,6 +111,7 @@ async function main() {
     await page.getByLabel("كلمة المرور", { exact: true }).fill(password);
     await page.getByRole("button", { name: "احذف حسابي", exact: true }).click();
     await page.getByRole("heading", { name: "أنشئ حسابك", exact: true }).waitFor();
+    await assertAccessibility(page, "Arabic registration after deletion in dark mode");
     const postDeleteSessionStatus = await page.evaluate(async () => {
       const response = await fetch("/api/auth/me", { credentials: "same-origin" });
       return response.status;

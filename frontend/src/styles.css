@@ -89,7 +89,7 @@ html[data-locale="ar"] body {
   inset-inline-start: -9999px;
   top: var(--space-2);
   background: var(--brand-primary);
-  color: #fff;
+  color: var(--surface);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   z-index: 10;
@@ -170,7 +170,7 @@ button,
   border: 1px solid transparent;
   padding: var(--space-2) var(--space-4);
   background: var(--brand-primary);
-  color: #fff;
+  color: var(--surface);
   transition: background 120ms ease;
 }
 button:hover:not(:disabled) {
