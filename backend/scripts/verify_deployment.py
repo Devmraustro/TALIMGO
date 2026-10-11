@@ -170,7 +170,7 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
             results.record("deleted session is refused", after.status_code == 401, f"{after.status_code}")
         except Exception as exc:
             results.record("deleted session refusal check completed", False, exc.__class__.__name__)
-
+    return email
 
 
 def main(argv: list[str] | None = None) -> None:

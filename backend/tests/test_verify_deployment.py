@@ -125,7 +125,9 @@ def test_redirect_check_accepts_a_301_that_keeps_path_and_query(results) -> None
     assert results.failures == 0
 
 
-def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(monkeypatch, tmp_path) -> None:
+def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(
+    monkeypatch, tmp_path
+) -> None:
     """A transport failure after registration must not bypass disposable-account cleanup."""
     calls: list[str] = []
 
@@ -162,3 +164,17 @@ def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(monk
     assert results.failures >= 1
     assert "/api/me/delete" in calls
     assert calls[-1] == "/api/auth/me"
+
+
+def test_manual_workflow_inputs_are_passed_through_environment() -> None:
+    """Manual workflow inputs must be supplied as environment values, not shell source."""
+    workflow_path = SCRIPTS.parents[1] / ".github" / "workflows" / "deploy-verify.yml"
+    workflow = workflow_path.read_text(encoding="utf-8")
+    verify_step = workflow.split("      - name: Verify the deployment\n", 1)[1]
+    assert "TALIMGO_VERIFY_BASE_URL: ${{ inputs.base_url }}" in verify_step
+    assert "TALIMGO_VERIFY_HOST: ${{ inputs.host }}" in verify_step
+    command = verify_step.split("        run: |\n", 1)[1]
+    assert '--base-url "$TALIMGO_VERIFY_BASE_URL"' in command
+    assert '--host "$TALIMGO_VERIFY_HOST"' in command
+    assert "${{ inputs.base_url }}" not in command
+    assert "${{ inputs.host }}" not in command
