@@ -1,0 +1,51 @@
+name: Deployment verification (manual)
+
+# This workflow never deploys anything and holds no credentials. It runs the checked-in
+# post-deployment verification script against a hostname an operator types in by hand, so a staging or
+# production deployment can be checked from a clean machine with one click. It is manual by design:
+# there is no push, schedule or pull_request trigger, and every run needs a named target, because a
+# target's ownership must be a human decision (see docs/DEPLOYMENT.md).
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Public HTTPS origin of an authorised TALIMGO deployment, e.g. https://talimgo.example"
+        required: true
+        type: string
+      host:
+        description: "The same hostname, typed again to confirm the target (must match base_url)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Post-deployment verification (read-only checks + one disposable account)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Runs on a GitHub runner, so the deployment must be reachable from the public internet with a
+      # certificate the runner trusts. If the target is behind a network you control, run the same
+      # command from inside that network instead (see docs/DEPLOYMENT.md).
+      - name: Verify the deployment
+        run: |
+          python scripts/verify_deployment.py \
+            --base-url "${{ inputs.base_url }}" \
+            --host "${{ inputs.host }}"

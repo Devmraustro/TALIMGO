@@ -166,6 +166,39 @@ through `/api/...`, so this avoids adding a separate interface origin to `TALIMG
 * Audit events (`audit_log`) record account, consent and plan changes for accountability; retention of
   audit rows is an owner policy decision (see §9).
 
+### Post-deployment verification
+
+`backend/scripts/verify_deployment.py` checks a real, authorised HTTPS target end to end. It is not a
+penetration test or a load test, and a pass says nothing about the local model runtime:
+
+```bash
+backend/.venv/bin/python scripts/verify_deployment.py \
+  --base-url https://talimgo.example --host talimgo.example
+```
+
+It refuses a plain-HTTP target and refuses a `--host` that does not match `--base-url`, so a typo
+cannot point a run of account-creating requests at the wrong service. Certificate verification is on;
+`--insecure-tls` exists for a rehearsal host whose certificate is not trusted yet and must never be
+used for a real deployment. `--http-port` exists only to rehearse on a non-privileged port. It checks:
+
+1. the plain-HTTP entry point redirects to HTTPS, keeping path and query;
+2. `/api/health` answers `status: ok`, with HSTS, `nosniff`, `Referrer-Policy` and a framing refusal
+   present on the response;
+3. `/api/docs` is not served (a production deployment must set `TALIMGO_ENV=production`);
+4. one **disposable** account is created, its session survives a new request, a goal is written and
+   read back, then the account is deleted and its session is refused — the account it creates is
+   removed by the same run, and the email is printed only if a step failed, so it can be cleaned up.
+
+The same command is available as a manual GitHub workflow (`.github/workflows/deploy-verify.yml`,
+`workflow_dispatch` only). That workflow never deploys anything and holds no credentials: it just runs
+these checks from a clean runner. A target reachable only from your own network must be verified with
+the command above from inside that network instead.
+
+What it does **not** cover, and what remains a manual check: browser rendering and accessibility
+(screen reader, contrast, zoom/reflow), the local model's answers, backup/restore durability outside
+the host, and anything about DNS or the certificate chain beyond trusting the certificate the runner
+sees.
+
 ## 8. Resource limits
 
 | Limit | Where | Value |
@@ -254,5 +287,6 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 - [ ] `nginx -t` succeeds with the real hostname/certificate paths; HTTP redirect, HSTS, forwarding-header trust and edge rate limits verified.
 - [ ] Interface loaded in a real browser: it renders, its requests succeed, and the console reports no CSP violations (CI cannot check browser enforcement).
 - [ ] An API-generated 429 still arrives with its own message and `Retry-After` (not replaced by the edge page).
+- [ ] Post-deployment verification passes against the real hostname: `python backend/scripts/verify_deployment.py --base-url https://<host> --host <host>`
 - [ ] Pilot account created, export downloaded, deletion performed and verified on a throwaway account.
 - [ ] Logs shipped, health check wired into the supervisor, resource limits applied.
