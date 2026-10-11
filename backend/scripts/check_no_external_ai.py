@@ -102,8 +102,7 @@ def check_urls(failures: list[str]) -> int:
             failures.append(f"{relative}: non-local URL literal {raw!r}")
     for stale in sorted(CSP_LITERAL_EXCEPTIONS - used_exceptions):
         failures.append(
-            f"{stale[0]}: stale CSP exception for {stale[1]!r} — remove it from "
-            "CSP_LITERAL_EXCEPTIONS"
+            f"{stale[0]}: stale CSP exception for {stale[1]!r} — remove it from CSP_LITERAL_EXCEPTIONS"
         )
     return checked
 
