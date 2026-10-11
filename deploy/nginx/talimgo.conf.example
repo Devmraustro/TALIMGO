@@ -57,7 +57,22 @@ http {
         index index.html;
         client_max_body_size 256k;
 
+        # HSTS intent: one year, this host only. `includeSubDomains` and `preload` are deliberately
+        # absent — they commit every current and future subdomain to HTTPS, so they are added only
+        # once that is true for the whole domain (see docs/DEPLOYMENT.md).
         add_header Strict-Transport-Security "max-age=31536000" always;
+
+        # A request refused by the edge rate limits below is answered by Nginx itself, so this gives
+        # that response the same JSON error shape the API uses; an interface that reads `detail` shows
+        # a real sentence instead of a bare status. Responses that come *from* the API are untouched:
+        # `proxy_intercept_errors` stays off, so the API's own 429 keeps its specific message and
+        # Retry-After header.
+        error_page 429 = @talimgo_rate_limited;
+
+        location @talimgo_rate_limited {
+            default_type application/json;
+            return 429 '{"detail":"Too many requests. Please wait a moment and try again."}';
+        }
 
         location = /api {
             proxy_pass http://talimgo_api;
@@ -106,6 +121,22 @@ http {
         }
 
         location / {
+            # The API's hardening headers are set by the application itself. This location serves the
+            # built interface straight from disk, so the document needs its own policy. Declaring
+            # `add_header` here cancels inheritance of the server-level HSTS header — hence the
+            # repetition below. `Permissions-Policy` mirrors backend/app/http_hardening.py.
+            #
+            # `style-src` allows inline styles because the interface sets style attributes. Scripts are
+            # restricted to this deployment's own bundles. Browser enforcement of a CSP cannot be
+            # checked by CI: after deploying, load the interface and confirm it still works, then
+            # check the policy in the browser console (docs/DEPLOYMENT.md, post-deploy checks).
+            add_header Strict-Transport-Security "max-age=31536000" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Referrer-Policy "no-referrer" always;
+            add_header Permissions-Policy "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'" always;
+
             try_files $uri $uri/ /index.html;
         }
     }

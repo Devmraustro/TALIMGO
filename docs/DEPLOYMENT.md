@@ -82,14 +82,44 @@ is expected to listen on `127.0.0.1:8000`; it must not be published directly to 
 The example includes HTTP-to-HTTPS redirection (while allowing ACME challenges), TLS 1.2/1.3,
 a 256 KiB request-body cap, static SPA routing, separate per-IP rate limits for authentication and
 other API traffic, HSTS, and explicit replacement of forwarded headers. CI runs `nginx -t` against
-this configuration and smoke-tests the redirect, TLS/static response, HSTS, spoofed forwarding
-headers, and authentication rate limit using an ephemeral test certificate and a fake local upstream.
-That validates the example configuration and edge behaviour in CI, **not** the live domain, real
-certificate renewal, firewall, or production routing.
+this configuration and smoke-tests the redirect, TLS/static response, HSTS, the interface document
+headers, spoofed forwarding headers, the pass-through of an API refusal, and the authentication rate
+limit using an ephemeral test certificate and a fake local upstream. That validates the example
+configuration and edge behaviour in CI, **not** the live domain, real certificate renewal, firewall,
+or production routing. The same sequence is a usable pre-deployment rehearsal: run it locally with
+the ports changed to unprivileged ones if you are not root, then repeat it against the real hostname
+once DNS and the certificate exist.
+
+HSTS intent in the example is one year for this host only: `includeSubDomains` and `preload` are
+deliberately absent, because they commit every current and future subdomain to HTTPS. Add them only
+when that is true for the whole domain, and record the decision.
 
 The application sends `Strict-Transport-Security` only when the request arrives over HTTPS, which
 means the proxy must set `X-Forwarded-Proto: https`. In the checked-in example, Nginx owns the public
 HSTS header and hides the upstream copy to avoid duplicate values.
+
+Two different surfaces need headers, and the example handles both:
+
+* **API responses** get their policy from the application (`backend/app/http_hardening.py`):
+  `nosniff`, `Referrer-Policy`, `X-Frame-Options`/`frame-ancestors`, `Permissions-Policy` and a
+  `default-src 'none'` CSP. Proxied responses are passed through untouched.
+* **The interface document** is served from disk by Nginx, so the application's headers never apply to
+  it. `location /` in the example sets its own policy for HTML/JS/CSS: `nosniff`, `X-Frame-Options`,
+  `Referrer-Policy`, the same `Permissions-Policy`, and a CSP that allows only this origin's own
+  bundles. `style-src` includes `'unsafe-inline'` because the components use style attributes.
+  Declaring `add_header` in that block cancels inheritance of the server-level HSTS header, which is
+  why HSTS is repeated there — if you edit the block, keep it. CI asserts the headers are present; it
+  cannot check that a browser *enforces* the CSP without breaking the interface, so load the deployed
+  interface in a browser and check the console after the first deployment.
+
+Edge refusals are shaped for the same clients as the API's own:
+
+* a request refused by the Nginx limits is answered by Nginx with the API's JSON error shape
+  (`{"detail": "..."}`) rather than an HTML error page. It carries no `Retry-After`, because the edge
+  cannot state the exact refill time. The sentence is English-only, like the API's own limit messages;
+* an API-generated 429/4xx/5xx is **not** intercepted: `proxy_intercept_errors` stays off, so the
+  API's specific message and its `Retry-After` header reach the client unchanged. CI asserts this with
+  a fake API refusal, so enabling interception later fails the build.
 
 Proxy rules the application assumes but does not enforce itself:
 
@@ -212,5 +242,7 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 - [ ] Egress from the API host blocked; model runtime reachable only on the private path.
 - [ ] `python -m app.maintenance --dry-run` runs; production backup and restore rehearsed against off-host storage.
 - [ ] `nginx -t` succeeds with the real hostname/certificate paths; HTTP redirect, HSTS, forwarding-header trust and edge rate limits verified.
+- [ ] Interface loaded in a real browser: it renders, its requests succeed, and the console reports no CSP violations (CI cannot check browser enforcement).
+- [ ] An API-generated 429 still arrives with its own message and `Retry-After` (not replaced by the edge page).
 - [ ] Pilot account created, export downloaded, deletion performed and verified on a throwaway account.
 - [ ] Logs shipped, health check wired into the supervisor, resource limits applied.

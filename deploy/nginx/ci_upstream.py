@@ -8,6 +8,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        if self.path == "/api/ci-edge-passthrough":
+            # Stands in for an API-level refusal (for example TALIMGO's own rate limit). The edge must
+            # hand this response, its body and its Retry-After header to the client unchanged.
+            body = json.dumps({"detail": "api-level limit reached"}).encode("utf-8")
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Retry-After", "7")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if not self.path.startswith("/api/"):
             self.send_error(404)
             return
