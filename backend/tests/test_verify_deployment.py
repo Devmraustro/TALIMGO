@@ -125,9 +125,7 @@ def test_redirect_check_accepts_a_301_that_keeps_path_and_query(results) -> None
     assert results.failures == 0
 
 
-def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(
-    monkeypatch, tmp_path
-) -> None:
+def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(monkeypatch, tmp_path) -> None:
     """A transport failure after registration must not bypass disposable-account cleanup."""
     calls: list[str] = []
 
@@ -149,9 +147,7 @@ def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(
         if request.url.path == "/api/auth/register":
             return httpx.Response(201, json={"id": "disposable"})
         if request.url.path == "/api/auth/me" and calls.count("/api/auth/me") == 1:
-            raise httpx.ConnectError(
-                "simulated disconnect after account creation", request=request
-            )
+            raise httpx.ConnectError("simulated disconnect after account creation", request=request)
         if request.url.path == "/api/me/delete":
             return httpx.Response(204)
         if request.url.path == "/api/auth/me":
@@ -159,9 +155,7 @@ def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
     results = verify_deployment.Results()
-    with httpx.Client(
-        transport=httpx.MockTransport(handler), base_url="https://talimgo.example"
-    ) as client:
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://talimgo.example") as client:
         email = verify_deployment.run_api_checks(results, client)
 
     assert email is not None

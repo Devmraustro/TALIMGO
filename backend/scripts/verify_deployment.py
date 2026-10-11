@@ -153,9 +153,7 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
         )
     except Exception as exc:
         # Verification must still attempt deletion if a request fails unexpectedly after registration.
-        results.record(
-            "post-registration API checks completed", False, exc.__class__.__name__
-        )
+        results.record("post-registration API checks completed", False, exc.__class__.__name__)
     finally:
         # Always attempt cleanup, including after network or response-decoding failures.
         try:
@@ -163,23 +161,15 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
                 "/api/me/delete",
                 json={"password": DISPOSABLE_PASSWORD, "confirmation": "DELETE"},
             )
-            results.record(
-                "disposable account deleted", removed.status_code == 204, f"{removed.status_code}"
-            )
+            results.record("disposable account deleted", removed.status_code == 204, f"{removed.status_code}")
         except Exception as exc:
-            results.record(
-                "disposable account deletion request completed", False, exc.__class__.__name__
-            )
+            results.record("disposable account deletion request completed", False, exc.__class__.__name__)
 
         try:
             after = client.get("/api/auth/me")
-            results.record(
-                "deleted session is refused", after.status_code == 401, f"{after.status_code}"
-            )
+            results.record("deleted session is refused", after.status_code == 401, f"{after.status_code}")
         except Exception as exc:
-            results.record(
-                "deleted session refusal check completed", False, exc.__class__.__name__
-            )
+            results.record("deleted session refusal check completed", False, exc.__class__.__name__)
     return email
 
 
