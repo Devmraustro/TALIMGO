@@ -127,7 +127,13 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(_request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        # Preserve intentional protocol headers such as Retry-After from rate-limit/capacity
+        # responses. Dropping them changes the documented client retry contract.
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
