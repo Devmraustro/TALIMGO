@@ -45,7 +45,10 @@ jobs:
       # certificate the runner trusts. If the target is behind a network you control, run the same
       # command from inside that network instead (see docs/DEPLOYMENT.md).
       - name: Verify the deployment
+        env:
+          TALIMGO_VERIFY_BASE_URL: ${{ inputs.base_url }}
+          TALIMGO_VERIFY_HOST: ${{ inputs.host }}
         run: |
           python scripts/verify_deployment.py \
-            --base-url "${{ inputs.base_url }}" \
-            --host "${{ inputs.host }}"
+            --base-url "$TALIMGO_VERIFY_BASE_URL" \
+            --host "$TALIMGO_VERIFY_HOST"

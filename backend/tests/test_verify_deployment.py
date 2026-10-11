@@ -123,3 +123,42 @@ def test_redirect_check_accepts_a_301_that_keeps_path_and_query(results) -> None
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
         verify_deployment.check_redirect(results, client, "https://talimgo.example")
     assert results.failures == 0
+
+
+def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(monkeypatch, tmp_path) -> None:
+    """A transport failure after registration must not bypass disposable-account cleanup."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/api/health":
+            return httpx.Response(
+                200,
+                json={"status": "ok"},
+                headers={
+                    "strict-transport-security": "max-age=31536000",
+                    "x-content-type-options": "nosniff",
+                    "referrer-policy": "no-referrer",
+                    "x-frame-options": "DENY",
+                },
+            )
+        if request.url.path == "/api/docs":
+            return httpx.Response(404)
+        if request.url.path == "/api/auth/register":
+            return httpx.Response(201, json={"id": "disposable"})
+        if request.url.path == "/api/auth/me" and calls.count("/api/auth/me") == 1:
+            raise httpx.ConnectError("simulated disconnect after account creation", request=request)
+        if request.url.path == "/api/me/delete":
+            return httpx.Response(204)
+        if request.url.path == "/api/auth/me":
+            return httpx.Response(401)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    results = verify_deployment.Results()
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://talimgo.example") as client:
+        email = verify_deployment.run_api_checks(results, client)
+
+    assert email is not None
+    assert results.failures >= 1
+    assert "/api/me/delete" in calls
+    assert calls[-1] == "/api/auth/me"

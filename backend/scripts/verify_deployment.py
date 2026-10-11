@@ -121,42 +121,56 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
     ):
         return None
 
-    session = client.get("/api/auth/me")
-    results.record(
-        "session survives a new request",
-        session.status_code == 200 and session.json().get("user", {}).get("email") == email,
-        f"{session.status_code}",
-    )
+    try:
+        session = client.get("/api/auth/me")
+        results.record(
+            "session survives a new request",
+            session.status_code == 200 and session.json().get("user", {}).get("email") == email,
+            f"{session.status_code}",
+        )
 
-    paths = client.get("/api/curriculum/paths")
-    path_id = "python-foundations"
-    if paths.status_code == 200 and isinstance(paths.json(), list) and paths.json():
-        path_id = paths.json()[0].get("id", path_id)
-    goal = client.post(
-        "/api/goals",
-        json={
-            "path_id": path_id,
-            "statement": "Deployment verification goal",
-            "weekly_minutes": 120,
-        },
-    )
-    results.record("goal created", goal.status_code == 201, f"{goal.status_code}")
-    listed = client.get("/api/goals")
-    goal_id = goal.json().get("id") if goal.status_code == 201 else None
-    results.record(
-        "goal is readable back",
-        listed.status_code == 200 and any(row.get("id") == goal_id for row in listed.json())
-        if goal_id
-        else False,
-        f"{listed.status_code}",
-    )
+        paths = client.get("/api/curriculum/paths")
+        path_id = "python-foundations"
+        if paths.status_code == 200 and isinstance(paths.json(), list) and paths.json():
+            path_id = paths.json()[0].get("id", path_id)
+        goal = client.post(
+            "/api/goals",
+            json={
+                "path_id": path_id,
+                "statement": "Deployment verification goal",
+                "weekly_minutes": 120,
+            },
+        )
+        results.record("goal created", goal.status_code == 201, f"{goal.status_code}")
+        listed = client.get("/api/goals")
+        goal_id = goal.json().get("id") if goal.status_code == 201 else None
+        results.record(
+            "goal is readable back",
+            listed.status_code == 200 and any(row.get("id") == goal_id for row in listed.json())
+            if goal_id
+            else False,
+            f"{listed.status_code}",
+        )
+    except Exception as exc:
+        # Verification must still attempt deletion if a request fails unexpectedly after registration.
+        results.record("post-registration API checks completed", False, exc.__class__.__name__)
+    finally:
+        # Always attempt cleanup, including after network or response-decoding failures.
+        try:
+            removed = client.post(
+                "/api/me/delete",
+                json={"password": DISPOSABLE_PASSWORD, "confirmation": "DELETE"},
+            )
+            results.record("disposable account deleted", removed.status_code == 204, f"{removed.status_code}")
+        except Exception as exc:
+            results.record("disposable account deletion request completed", False, exc.__class__.__name__)
 
-    # Deletion is deliberately explicit: the API requires the literal confirmation word.
-    removed = client.post("/api/me/delete", json={"password": DISPOSABLE_PASSWORD, "confirmation": "DELETE"})
-    results.record("disposable account deleted", removed.status_code == 204, f"{removed.status_code}")
-    after = client.get("/api/auth/me")
-    results.record("deleted session is refused", after.status_code == 401, f"{after.status_code}")
-    return email
+        try:
+            after = client.get("/api/auth/me")
+            results.record("deleted session is refused", after.status_code == 401, f"{after.status_code}")
+        except Exception as exc:
+            results.record("deleted session refusal check completed", False, exc.__class__.__name__)
+
 
 
 def main(argv: list[str] | None = None) -> None:
