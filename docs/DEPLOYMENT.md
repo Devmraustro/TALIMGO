@@ -185,19 +185,34 @@ used for a real deployment. `--http-port` exists only to rehearse on a non-privi
 2. `/api/health` answers `status: ok`, with HSTS, `nosniff`, `Referrer-Policy` and a framing refusal
    present on the response;
 3. `/api/docs` is not served (a production deployment must set `TALIMGO_ENV=production`);
-4. one **disposable** account is created, its session survives a new request, a goal is written and
-   read back, then the account is deleted and its session is refused — the account it creates is
-   removed by the same run, and the email is printed only if a step failed, so it can be cleaned up.
+4. one **disposable** account is created with a fresh random password for that run, its
+   session survives a new request, a goal is written and read back, then the account is deleted and its
+   session is refused. If the registration response is lost or returns a server error after account
+   creation, the verifier attempts to log in with the same in-memory credentials and remove the account.
+   The email is printed only if cleanup cannot be confirmed; inspect the target database if that happens.
 
 The same command is available as a manual GitHub workflow (`.github/workflows/deploy-verify.yml`,
 `workflow_dispatch` only). That workflow never deploys anything and holds no credentials: it just runs
 these checks from a clean runner. A target reachable only from your own network must be verified with
 the command above from inside that network instead.
 
-What it does **not** cover, and what remains a manual check: browser rendering and accessibility
-(screen reader, contrast, zoom/reflow), the local model's answers, backup/restore durability outside
-the host, and anything about DNS or the certificate chain beyond trusting the certificate the runner
-sees.
+### Browser smoke in CI
+
+The `browser-smoke` CI job installs pinned Playwright/Chromium and exercises the real FastAPI backend
+through the Vite same-origin proxy in a disposable SQLite environment. It creates an account, sets a
+goal, submits a real diagnostic answer, switches the interface to Arabic and verifies `lang=ar` and
+`dir=rtl`, checks that a 390-pixel viewport has no horizontal overflow, deletes the account, verifies
+the session is rejected, and fails on uncaught page errors, API 5xx responses, or requests to another
+host/port. Failure screenshots and server logs are retained as a short-lived CI artifact.
+
+This is an automated journey smoke test, **not** a full accessibility audit or a test of the production
+Nginx CSP: it uses Vite's development server and a disposable database. A real deployment still needs a
+browser pass against the actual HTTPS host, especially to confirm that the production CSP allows the
+built app while blocking disallowed sources.
+
+What CI does **not** cover, and what remains manual: screen-reader behaviour, contrast, 200–400% zoom
+and reflow, complete focus order, the local model's answers, backup/restore durability outside the host,
+and DNS/certificate issuance or renewal beyond trusting the certificate the runner sees.
 
 ## 8. Resource limits
 

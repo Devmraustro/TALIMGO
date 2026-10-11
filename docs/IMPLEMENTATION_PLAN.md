@@ -4,7 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-10-10.
+Last updated: 2026-10-11.
 
 ---
 
@@ -531,11 +531,18 @@ form submits from the keyboard, `prefers-reduced-motion` and the in-app reduced-
 disable animation, a visible `:focus-visible` outline exists, Arabic flips direction to RTL, and the
 Arabic string table covers every English key with every placeholder interpolated.
 
-**Still requires manual/browser/screen-reader testing (not done, not claimed):** focus *order* across a
-whole page and after dynamic updates; colour contrast against the real rendered theme; zoom and reflow
-at 200–400%; virtual-cursor reading order and numeral/date presentation in Arabic; behaviour with an
-actual screen reader (NVDA, VoiceOver, TalkBack); touch target sizes on a phone; and the teacher/admin
-flows, which have no interface yet.
+CI now also runs `.github/workflows/ci.yml`'s `browser-smoke` job with pinned Playwright/Chromium
+against the real FastAPI application plus Vite's same-origin API proxy. It verifies sign-up, goal creation,
+a real diagnostic answer, Arabic `lang`/`dir`, no horizontal overflow at a 390-pixel viewport, account
+deletion/session revocation, no uncaught page errors, no API 5xx responses, and no requests to another
+host/port. This covers one representative browser journey; it is not WCAG conformance testing and does
+not exercise the production Nginx CSP because the test uses the Vite development server.
+
+**Still requires manual/deployed-browser/screen-reader testing (not done, not claimed):** focus *order*
+across a whole page and after dynamic updates; colour contrast against the real rendered theme; zoom and
+reflow at 200–400%; virtual-cursor reading order and numeral/date presentation in Arabic; behaviour with
+an actual screen reader (NVDA, VoiceOver, TalkBack); touch target sizes on a phone; production CSP
+enforcement on the deployed build; and the teacher/admin flows, which have no interface yet.
 
 ### 7.13 Making the model-allowance reservation actually durable (review round)
 
@@ -636,3 +643,18 @@ and authentication limiter against a tiny local fake upstream.
 They do not prove off-host storage durability, secret/key custody, certificate renewal, DNS/firewall
 configuration, production traffic behaviour, RPO/RTO, or a real externally managed deployment.
 
+### 7.17 Real-browser journey and deployment-verifier recovery hardening
+
+The deployment-verification tool now generates a cryptographically random one-run password and never
+prints it. If account registration returns a server error or its response is lost after the server has
+created the account, the tool attempts login with that run's credentials and then deletes the account.
+After the authenticated journey it always attempts cleanup, even if a later request fails. A verified
+email is reported only when cleanup cannot be confirmed. Regression tests cover per-run credential reuse
+between registration/deletion, a lost registration response followed by login recovery, and cleanup after
+an unexpected post-registration connection error. The manual GitHub workflow now passes operator inputs
+through environment variables rather than interpolating them directly into shell source.
+
+The CI browser job exercises the actual page in Chromium against the real API and Vite proxy, including
+sign-up, goal creation, one diagnostic answer, Arabic RTL, narrow viewport reflow, account deletion and
+session refusal. It is a useful end-to-end regression gate, but it is not a live deployment test or a
+substitute for checking the production edge/CSP and manual accessibility on the actual domain.

@@ -330,6 +330,18 @@ jobs:
           export TALIMGO_BROWSER_BASE_URL=http://127.0.0.1:5173
           node frontend/scripts/browser-smoke.cjs
 
+      - name: Save browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: talimgo-browser-smoke-failure
+          path: |
+            /tmp/talimgo-browser-smoke-failure.png
+            /tmp/talimgo-browser-api.log
+            /tmp/talimgo-browser-vite.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   dependency-audit:
     name: Dependency and licence audit
     runs-on: ubuntu-latest
