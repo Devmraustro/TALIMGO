@@ -77,6 +77,7 @@ def main() -> None:
     env.setdefault("PGCONNECT_TIMEOUT", "5")
     source_args = connection_args(source_url)
     restore_url = source_url.set(database=RESTORE_DATABASE)
+    restore_url_string = restore_url.render_as_string(hide_password=False)
 
     with tempfile.TemporaryDirectory(prefix="talimgo-pg-restore-") as temp_dir:
         dump_path = os.path.join(temp_dir, "talimgo.dump")
@@ -123,7 +124,7 @@ def main() -> None:
             )
 
             source_counts = table_counts(raw_url)
-            restored_counts = table_counts(str(restore_url))
+            restored_counts = table_counts(restore_url_string)
             if source_counts != restored_counts:
                 raise AssertionError(
                     f"Backup/restore row counts differ. Source: {source_counts}; restored: {restored_counts}"
@@ -131,14 +132,14 @@ def main() -> None:
             if source_counts.get("users", 0) < 1 or source_counts.get("goals", 0) < 1:
                 raise AssertionError("Backup rehearsal must include a populated user and goal.")
             source_revision = alembic_revision(raw_url)
-            restored_revision = alembic_revision(str(restore_url))
+            restored_revision = alembic_revision(restore_url_string)
             if source_revision != restored_revision:
                 raise AssertionError(
                     f"Alembic revision changed across restore: {source_revision} != {restored_revision}"
                 )
 
             restored_env = env.copy()
-            restored_env["TALIMGO_DATABASE_URL"] = str(restore_url)
+            restored_env["TALIMGO_DATABASE_URL"] = restore_url_string
             subprocess.run(
                 [sys.executable, "scripts/postgres_smoke.py"],
                 check=True,
