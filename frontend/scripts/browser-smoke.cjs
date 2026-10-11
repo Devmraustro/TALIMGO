@@ -15,7 +15,7 @@ async function assertAccessibility(page, label) {
       .filter((animation) => animation.constructor.name === "CSSTransition" && animation.playState === "running");
     await Promise.all(transitions.map((animation) => animation.finished.catch(() => undefined)));
   });
-  const violations = await page.evaluate(async (tags) {
+  const violations = await page.evaluate(async (tags) => {
     const results = await window.axe.run(document, { runOnly: { type: "tag", values: tags } });
     return results.violations.map(({ id, impact, help, nodes }) => ({
       id,
