@@ -13,7 +13,11 @@ async function assertAccessibility(page, label) {
       id,
       impact,
       help,
-      targets: nodes.map(({ target }) => target),
+      nodes: nodes.map(({ target, failureSummary, any }) => ({
+        target,
+        failureSummary,
+        checks: any.map(({ id: checkId, message, data }) => ({ id: checkId, message, data })),
+      })),
     }));
   }, WCAG_TAGS);
   assert.deepEqual(
