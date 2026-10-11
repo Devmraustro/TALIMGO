@@ -60,6 +60,53 @@ jobs:
           TALIMGO_DATABASE_URL: sqlite:///./ci-test.db
         run: pytest -q -m local_model -rs
 
+  postgres-integration:
+    name: PostgreSQL (migrations, startup and persistence)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: talimgo
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d talimgo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TALIMGO_ENV: test
+      TALIMGO_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/talimgo
+      TALIMGO_SESSION_SECRET: postgres-ci-session-secret-change-this
+      TALIMGO_AI_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Apply migration chain and check schema drift
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Smoke-test startup, account/session and goal persistence on PostgreSQL
+        run: python scripts/postgres_smoke.py
+
   local-only-ai:
     name: Local-only AI gate (no hosted providers in code or manifests)
     runs-on: ubuntu-latest

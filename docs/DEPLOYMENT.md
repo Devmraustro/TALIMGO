@@ -2,8 +2,9 @@
 
 This guide describes what a real deployment needs. It is written against the code in this repository
 and is deliberately explicit about which parts have been exercised here and which have **not**: the
-schema and tests have only ever run on SQLite in this development environment, no PostgreSQL instance,
-reverse proxy, container runtime or TLS certificate has been used while writing it.
+full API behaviour suite uses isolated SQLite databases; CI also applies the migration chain and runs a
+focused startup/account/goal persistence smoke check against PostgreSQL 16. No externally managed
+PostgreSQL server, reverse proxy, container runtime or TLS certificate has been used for a real deployment.
 
 > Status: **draft for owner review.** Deploying is an owner action (hosting, domain, TLS, secrets).
 > Nothing in this document has been executed in production.
@@ -51,9 +52,11 @@ automatically in production (`/api/docs`, `/api/openapi.json` return 404).
 * Use PostgreSQL: `TALIMGO_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/talimgo`.
 * Migrations are the only schema authority in production (`alembic upgrade head`); `alembic check`
   must report no drift before a deploy.
-* **Not verified here:** no PostgreSQL server has been run in this environment. Before the first real
-  deployment, run the full test suite and the migration chain against PostgreSQL, and confirm the
-  batch-alter migration that sets `plans.starts_on NOT NULL` behaves on a populated table.
+* CI runs the full Alembic migration chain and `alembic check` on PostgreSQL 16, then starts the
+  app against that migrated schema and smoke-tests account/session creation plus goal write/read.
+  The full API behaviour suite still uses per-test SQLite databases, so this is not a claim of complete
+  PostgreSQL parity. Before the first real deployment, also rehearse the `plans.starts_on NOT NULL`
+  migration with populated legacy plan rows and test backup/restore against the target PostgreSQL version.
 * The AI usage counter uses a conditional `UPDATE ... WHERE count < limit` (atomic per row on both
   SQLite and PostgreSQL) rather than a read-then-write; that is what makes the per-learner budget
   safe under concurrency (see `backend/tests/test_ai_quota.py`).
