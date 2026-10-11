@@ -66,9 +66,7 @@ def main() -> None:
             raise AssertionError(f"PostgreSQL goal creation failed with HTTP {goal.status_code}.")
         goal_id = goal.json().get("id")
         listed = client.get("/api/goals")
-        if listed.status_code != 200 or not any(
-            row.get("id") == goal_id for row in listed.json()
-        ):
+        if listed.status_code != 200 or not any(row.get("id") == goal_id for row in listed.json()):
             raise AssertionError("PostgreSQL goal write/read-back failed.")
 
     print("PostgreSQL smoke passed: health, registration, session read-back and goal persistence.")
