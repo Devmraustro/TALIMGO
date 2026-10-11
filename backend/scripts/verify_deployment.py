@@ -24,7 +24,7 @@ from uuid import uuid4
 
 import httpx
 
-# Disclosed, generated per run, and removed by the same run: not a credential.
+# Deliberately disclosed and single-use: the account it belongs to is deleted by this run.
 DISPOSABLE_PASSWORD = "deploy-verification-password-1"
 REQUIRED_DOCUMENT_HEADERS = (
     "x-content-type-options",
