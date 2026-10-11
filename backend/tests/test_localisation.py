@@ -7,6 +7,7 @@ Arabic learner received Arabic chrome around English lessons, questions, explana
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -242,11 +243,28 @@ def test_tutor_grounding_uses_the_learners_locale(client: TestClient) -> None:
     assert context.citation_ids == english.citation_ids, "citations are language-independent"
 
 
+# The documented public item schema. Asserting the exact key set (rather than "answer_key is absent")
+# is what makes this a real check: a new internal field — a hint, an accepted-value list, a grading
+# rule — cannot start leaking silently, in either locale.
+PUBLIC_ITEM_FIELDS = {"id", "objective_id", "kind", "prompt", "options", "difficulty"}
+INTERNAL_MARKERS = ("answer_key", "accepted", "verify_expr", "is_correct", "correct_answer")
+
+
 @pytest.mark.parametrize("locale", ["ar", "en"])
 def test_item_payloads_stay_free_of_answer_keys_in_both_locales(client: TestClient, locale: str) -> None:
     _learner(client, locale)
     started = client.post("/api/practice/sessions", json={"objective_id": OBJECTIVE_ID, "size": 1}).json()
     payload = started["item"]
-    assert "answer_key" not in payload
+
+    assert set(payload) == PUBLIC_ITEM_FIELDS, f"unexpected item fields: {set(payload)}"
+
+    serialised = json.dumps(payload)
+    for marker in INTERNAL_MARKERS:
+        assert marker not in serialised, f"{marker!r} leaked into the public payload"
+
+    # Options carry only what an answer needs — an id and a label — so nothing distinguishes the
+    # correct one. The authored key still exists, server-side, in the curriculum dataset.
+    for option in payload["options"] or []:
+        assert set(option) == {"id", "text"}
     key = item_index("python-foundations")[payload["id"]]["answer_key"]
-    assert str(key.get("option_id", "")) not in [option["id"] for option in payload["options"] or []] or True
+    assert key["option_id"] in {option["id"] for option in payload["options"] or []}

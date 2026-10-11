@@ -221,7 +221,7 @@ def answer_diagnostic(
     objective = db.get(Objective, item.objective_id)
     feedback = {
         "is_correct": outcome.is_correct,
-        "correct_answer": _canonical_answer(item, outcome),
+        "correct_answer": _canonical_answer(item, outcome, locale),
         "explanation": localised(
             {"explanation_en": item.explanation_en, "explanation_ar": item.explanation_ar},
             "explanation",
@@ -248,13 +248,29 @@ def answer_diagnostic(
     return {"feedback": feedback, "completed": completed, "placement": attempt.placement}
 
 
-def _canonical_answer(item: Item, outcome: GradeResult) -> str:
+def _option_label(option: dict, locale: str) -> str:
+    """The authored label of a choice, in the learner's language.
+
+    Options carry a per-language label (``{"id": "b", "en": "float", "ar": "float"}``), which is the
+    same convention ``serializers.item_public`` uses for the question itself. Nothing is translated
+    here: when a label is a literal the two columns simply hold the same string.
+    """
+    return str(option.get(locale) or option.get(DEFAULT_LOCALE) or "")
+
+
+def _canonical_answer(item: Item, outcome: GradeResult, locale: str = DEFAULT_LOCALE) -> str:
+    """The answer to show the learner after they answered, in the language they are reading in.
+
+    The choice label is authored per language; short answers are graded against literal accepted
+    values (e.g. ``"15"``) and are returned unchanged, because translating a canonical value would
+    change what the learner is told is correct.
+    """
     if item.kind == "mcq_single":
         key = item.answer_key or {}
         option_id = key.get("option_id")
         for option in item.options or []:
             if option.get("id") == option_id:
-                return localised(option, "", "en") or str(option.get("en", ""))
+                return _option_label(option, locale) or str(option_id or "")
         return str(option_id or "")
     if outcome.canonical_answer:
         return outcome.canonical_answer
@@ -538,7 +554,7 @@ def answer_practice(
     objective = db.get(Objective, item.objective_id)
     feedback = {
         "is_correct": outcome.is_correct,
-        "correct_answer": _canonical_answer(item, outcome),
+        "correct_answer": _canonical_answer(item, outcome, locale),
         "explanation": localised(
             {"explanation_en": item.explanation_en, "explanation_ar": item.explanation_ar},
             "explanation",
