@@ -126,8 +126,7 @@ def main() -> None:
             restored_counts = table_counts(str(restore_url))
             if source_counts != restored_counts:
                 raise AssertionError(
-                    f"Backup/restore row counts differ. Source: {source_counts}; "
-                    f"restored: {restored_counts}"
+                    f"Backup/restore row counts differ. Source: {source_counts}; restored: {restored_counts}"
                 )
             if source_counts.get("users", 0) < 1 or source_counts.get("goals", 0) < 1:
                 raise AssertionError("Backup rehearsal must include a populated user and goal.")
