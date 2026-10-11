@@ -237,6 +237,9 @@ const strings = {
   },
 } as const;
 
+/** Exposed for the automated localisation-coverage check in src/accessibility.test.tsx. */
+export const STRINGS = strings;
+
 export type StringKey = keyof (typeof strings)["en"];
 
 export function translator(locale: Locale) {

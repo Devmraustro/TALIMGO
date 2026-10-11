@@ -407,3 +407,130 @@ one alone, and the recorded actual minutes come from the sessions themselves.
   described as validated for multi-path or large-course operation.
 * Security and performance: no formal penetration test, no load test, and no review by a human
   other than the automated gates listed below.
+
+### 7.7 Baseline HTTP hardening
+
+**Gap.** The API sent no hardening headers at all, and the test suite *documented* that as current
+behaviour ("headers are absent") instead of asserting a policy.
+
+**Fix.** `app/http_hardening.py` (pure header function + one middleware) registered as the outermost
+layer, so successful responses, error responses and CORS preflight replies all carry the same policy:
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, frame-embedding protection twice
+over (`X-Frame-Options: DENY` and CSP `frame-ancestors 'none'`), a considered CSP
+(`default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; sandbox`), an
+explicit `Permissions-Policy` switching off 23 unused browser features, and `Strict-Transport-Security`
+**only on requests that arrived over HTTPS** — so local development over plain HTTP is unaffected and
+HSTS is never sent where a browser would ignore it. The development-only Swagger UI keeps a separate,
+minimal policy (it needs a CDN bundle); production serves no interactive docs at all, which the tests
+assert rather than assume.
+
+**Evidence.** `backend/tests/test_http_hardening.py` (11 tests, all passing) plus the replacement of the
+old "header absent" test with a tripwire. The threat model's new section maps every header to the risk
+it addresses and states what is *not* covered.
+
+**Honest limit.** This is a checklist enforced by tests. It is not a penetration test, and it says
+nothing about the reverse proxy, TLS configuration or rate limiting at the edge — those are deployment
+items (`docs/DEPLOYMENT.md`).
+
+### 7.8 Deployment, configuration and data maintenance
+
+**Gaps.** No deployment guide existed. The README told a contributor to `cp ../.env.example ../.env`,
+but `SettingsConfigDict(env_file=".env")` resolved against the *process working directory*, so a
+backend started from `backend/` ignored the file the instructions created. Login attempts and sessions
+accumulated with no documented way to prune them.
+
+**Changes.**
+
+* `docs/DEPLOYMENT.md` (new): production requirements, validated startup, PostgreSQL and migration
+  expectations, HTTPS/reverse-proxy configuration (including the `X-Forwarded-Proto` that HSTS
+  depends on), secrets, backup/restore, local-model isolation and egress restrictions, health checks,
+  logs, per-limit resource table, systemd sketch, rollback and a first-deployment checklist. It states
+  plainly that no PostgreSQL, proxy or TLS deployment has been exercised here.
+* `app/config.py`: settings files are now read from **absolute** paths — `backend/.env` is
+  authoritative, a repository-root `.env` is still merged (the previous layout keeps working), and
+  `TALIMGO_ENV_FILE` overrides both. `.env.example` moved to `backend/.env.example`, documents every
+  setting including the new ones, and a test fails if any `Settings` field is missing from it.
+* `app/maintenance.py` (new): `python -m app.maintenance [--dry-run]` prunes login attempts (30 days)
+  and sessions (30 days past expiry), idempotently, with retention as named constants and a report.
+  Audit rows are deliberately **not** pruned — their retention is an owner policy decision, and the
+  test suite asserts maintenance leaves them alone.
+
+**Evidence.** `backend/tests/test_config_env_files.py` (5 tests: cwd-independence, precedence,
+override, example/setting parity, placeholder-not-secret) and `backend/tests/test_maintenance.py`
+(5 tests: exact retention, scope, dry run, idempotency, audit untouched).
+
+### 7.9 Security review of session, request and resource handling
+
+`app/request_guards.py` (new) adds two controls: mutating requests carrying a body must be
+`application/json` (415 otherwise — a cross-site HTML form cannot produce that content type, so CSRF
+does not rest solely on `SameSite=Lax`), and bodies are refused above `TALIMGO_MAX_REQUEST_BYTES`
+(413; hard maximum 8 MiB) with chunked bodies on mutating methods refused (411) rather than read
+unbounded. Session cookie flags are now asserted by tests (HttpOnly, SameSite=Lax, Path=/, Secure in
+production). The per-learner model allowance became an atomic claim made **before** the model call
+instead of a read-then-write check, closing a check-then-act race; the claim is deliberately not
+refunded when a call fails, because the limit exists to bound resource use and retry pressure. The
+full review — including what was found, what changed and what remains owned by the deployment — is in
+`docs/SECURITY_THREAT_MODEL.md`, "Security review of session, request and resource handling".
+
+**Evidence.** `tests/test_request_guards.py` (8 tests), `tests/test_ai_quota.py` (5 tests including a
+10-thread concurrency test asserting exactly the limit is granted), and three cookie tests in
+`tests/test_security_basics.py`.
+
+### 7.10 Export and deletion, verified end to end
+
+`tests/test_account_lifecycle.py` (6 tests) builds a learner with a real history — profile, consent,
+goal, completed diagnostic, generated plan, completed practice session and a tutor thread produced
+through the actual tutor path with a mocked local transport — then asserts the export contains each
+category and that deletion leaves zero rows in sixteen learner-owned tables while the curriculum is
+untouched and still served publicly. Deletion was also checked to anonymise audit rows rather than
+delete them, to refuse inexact confirmation phrases, and to leave a replayed cookie and a fresh sign-in
+useless.
+
+**A real bug was found and fixed by this work:** `delete_account()` iterated `select(TutorThread.id)`
+(and three sibling queries) and accessed `.id` on each scalar, so **deleting an account that had ever
+used the tutor raised `AttributeError` and returned HTTP 500** — the account was not deleted. The
+existing test only deleted accounts without tutor history, which is why it passed. All four comprehensions
+now use the scalar ids directly, and the regression test covers the tutor-history case.
+
+### 7.11 Measurements (2026-10-11, this machine)
+
+`backend/scripts/bench.py` builds a learner through the real API, then times the endpoints a learner
+touches and counts SQL statements per request. Environment: Python 3.11.2, SQLite 3.40.1, Linux
+x86_64, single process through `TestClient` (no network, no proxy), 12 samples per endpoint.
+
+| Endpoint | median ms | p95 ms | SQL statements/request |
+|---|---|---|---|
+| `GET /api/dashboard` | 9.4 | 10.6 | 12 |
+| `GET /api/plans/active` | 8.6 | 9.1 | 7 |
+| `GET /api/plans/active/schedule` | 10.3 | 13.1 | 10 |
+| `GET /api/curriculum/paths` | 5.9 | 6.5 | 3 |
+| `GET /api/curriculum/lessons/{id}` | 6.6 | 6.8 | 4 |
+| `GET /api/practice/sessions/{id}` | 7.8 | 8.1 | 7 |
+| `GET /api/practice/progress/mastery` | 6.3 | 6.9 | 7 |
+| `POST /api/practice/sessions/{id}/answers` (accepted) | 13.7 | — | 19 |
+| `POST /api/practice/sessions/{id}/answers` (replayed item → 409) | 7.2 | — | 6 |
+
+Database after one learner's full journey: **400 KiB across 22 tables** (largest: `items` 36 — the
+authored curriculum, `learner_evidence` 15, `objectives` 12, `lessons` 12, `diagnostic_responses` 12).
+
+Reading: there is no N+1 explosion (the dashboard is the heaviest at 12 statements for a summary,
+next action, evidence list and mastery counts) and write-path cost is dominated by grading plus
+evidence and estimate updates. Model request handling could **not** be measured: no local runtime
+exists in this environment, so local-inference latency, tokens/second and concurrency behaviour remain
+unmeasured and are not claimed. These are single-process SQLite figures on a development machine and
+must not be presented as production capacity.
+
+### 7.12 Accessibility: automated checks and what still needs a human
+
+`frontend/src/accessibility.test.tsx` (13 tests, run by CI) covers what jsdom can check: every form
+control has a programmatic label, every dashboard region is named by a heading, errors are announced in
+a live region (`role="alert"`), the primary action is a real button reachable from the keyboard and the
+form submits from the keyboard, `prefers-reduced-motion` and the in-app reduced-motion flag both
+disable animation, a visible `:focus-visible` outline exists, Arabic flips direction to RTL, and the
+Arabic string table covers every English key with every placeholder interpolated.
+
+**Still requires manual/browser/screen-reader testing (not done, not claimed):** focus *order* across a
+whole page and after dynamic updates; colour contrast against the real rendered theme; zoom and reflow
+at 200–400%; virtual-cursor reading order and numeral/date presentation in Arabic; behaviour with an
+actual screen reader (NVDA, VoiceOver, TalkBack); touch target sizes on a phone; and the teacher/admin
+flows, which have no interface yet.
