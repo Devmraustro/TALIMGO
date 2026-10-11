@@ -12,6 +12,7 @@ Usage: python scripts/check_licences.py [--allow-gpl-build-tools]
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from importlib.metadata import distributions
 
@@ -35,6 +36,13 @@ def licence_text(distribution) -> str:
     return " ".join(parts).upper()
 
 
+def _has_policy_token(text: str, token: str) -> bool:
+    """Match GPL as a licence identifier without treating LGPL or AGPL as GPL."""
+    if token == "GPL":
+        return re.search(r"(?<![A-Z])GPL", text) is not None
+    return token in text
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -50,7 +58,7 @@ def main() -> int:
         name = distribution.metadata.get("Name") or "unknown"
         text = licence_text(distribution)
         for token, description in BLOCK.items():
-            if token in text:
+            if _has_policy_token(text, token):
                 failures.append(f"{name}: {description} ({token}) is not allowed")
                 break
         else:
