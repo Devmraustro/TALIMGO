@@ -20,6 +20,41 @@ async function assertAccessibility(page, label) {
       })),
     }));
   }, WCAG_TAGS);
+  if (violations.length > 0) {
+    const contrastContext = await page.evaluate(() => {
+      const selectors = [
+        'button[aria-current="page"]',
+        "div:nth-child(9) > button",
+        'a[href$="export"]',
+      ];
+      return {
+        prefersDark: window.matchMedia("(prefers-color-scheme: dark)").matches,
+        tokens: {
+          surface: getComputedStyle(document.documentElement).getPropertyValue("--surface").trim(),
+          brandPrimary: getComputedStyle(document.documentElement)
+            .getPropertyValue("--brand-primary")
+            .trim(),
+        },
+        elements: selectors.map((selector) => {
+          const element = document.querySelector(selector);
+          if (!element) return { selector, missing: true };
+          const style = getComputedStyle(element);
+          return {
+            selector,
+            text: element.textContent?.trim().slice(0, 50),
+            className: element.className,
+            disabled: element.matches(":disabled"),
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+            backgroundImage: style.backgroundImage,
+            opacity: style.opacity,
+            parentBackground: getComputedStyle(element.parentElement).backgroundColor,
+          };
+        }),
+      };
+    });
+    console.error(`Axe contrast context: ${JSON.stringify(contrastContext, null, 2)}`);
+  }
   assert.deepEqual(
     violations,
     [],
