@@ -11,7 +11,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from app.ai.adapter import LocalModelClient, ModelMessage, ModelRequest
@@ -56,14 +57,44 @@ def usage_today(db: DbSession, user_id: str, *, now: datetime | None = None) -> 
     return row.count if row else 0
 
 
-def _consume_usage(db: DbSession, user_id: str, *, now: datetime | None = None) -> None:
+def reserve_usage(db: DbSession, user_id: str, *, limit: int, now: datetime | None = None) -> int:
+    """Claim one unit of today's allowance, atomically, and return the new count.
+
+    The allowance is *reserved before* the model call rather than counted after it, so two concurrent
+    requests cannot both read "0 used" and both proceed. The claim is a single conditional UPDATE
+    (``count = count + 1 WHERE count < limit``), which is atomic per row on both SQLite and
+    PostgreSQL; a missing row is created inside a SAVEPOINT so a concurrent insert loses cleanly
+    instead of aborting the caller's transaction. A claim is never refunded — an attempted request
+    counts even when the runtime then fails — which is deliberate: the limit bounds resource use and
+    retry pressure, not just successful replies.
+    """
+    if limit <= 0:
+        raise AiBudgetExceededError("Local tutoring is disabled for this account (daily limit 0).")
     day = (now or utcnow()).strftime("%Y-%m-%d")
-    row = db.scalar(select(AiUsage).where(AiUsage.user_id == user_id, AiUsage.day == day))
-    if row is None:
-        db.add(AiUsage(user_id=user_id, day=day, count=1))
-    else:
-        row.count += 1
-    db.flush()
+
+    for _ in range(3):
+        claimed = db.execute(
+            update(AiUsage)
+            .where(AiUsage.user_id == user_id, AiUsage.day == day, AiUsage.count < limit)
+            .values(count=AiUsage.count + 1)
+        ).rowcount
+        if claimed:
+            return usage_today(db, user_id, now=now)
+        exists = db.scalar(select(AiUsage.id).where(AiUsage.user_id == user_id, AiUsage.day == day))
+        if exists is None:
+            try:
+                with db.begin_nested():
+                    db.add(AiUsage(user_id=user_id, day=day, count=1))
+                db.flush()
+                return 1
+            except IntegrityError:
+                continue  # another request inserted first; retry the conditional update
+        raise AiBudgetExceededError(
+            f"Daily tutoring limit reached ({limit} requests). It resets at midnight UTC."
+        )
+    raise AiBudgetExceededError(
+        f"Daily tutoring limit reached ({limit} requests). It resets at midnight UTC."
+    )
 
 
 def build_messages(
@@ -100,11 +131,9 @@ def answer(
         )
 
     moment = now or utcnow()
-    used = usage_today(db, user.id, now=moment)
-    if used >= settings.ai_daily_requests_per_learner:
-        raise AiBudgetExceededError(
-            f"Daily tutoring limit reached ({settings.ai_daily_requests_per_learner} requests)."
-        )
+    # Reserved before any work is done: the budget cannot be exceeded by concurrent requests, and a
+    # request that fails later still consumed its slot (documented in reserve_usage).
+    used = reserve_usage(db, user.id, limit=settings.ai_daily_requests_per_learner, now=moment)
 
     context = build_grounding(db, objective_id=objective_id, lesson_id=lesson_id, locale=locale)
     messages = build_messages(context.markdown, question, context.citation_ids, locale)
@@ -119,8 +148,6 @@ def answer(
         )
     )
     parsed = validate_tutor_reply(response.text, allowed_citations=context.citation_ids)
-
-    _consume_usage(db, user.id, now=moment)
 
     thread = db.scalar(
         select(TutorThread)
@@ -162,7 +189,7 @@ def answer(
             "prompt_version": PROMPT_VERSION,
             "confidence": parsed.confidence,
             "follow_up_question": parsed.follow_up_question,
-            "usage_today": used + 1,
+            "usage_today": used,
         },
     }
 

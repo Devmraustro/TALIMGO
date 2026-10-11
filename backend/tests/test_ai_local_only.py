@@ -236,7 +236,7 @@ ALLOWED = {
     ".github/workflows/ci.yml",
     "AGENTS.md",
     "docs/OPEN_SOURCE_REUSE_AUDIT.md",
-    ".env.example",
+    "backend/.env.example",
 }
 
 FORBIDDEN_SDK_IMPORTS = re.compile(

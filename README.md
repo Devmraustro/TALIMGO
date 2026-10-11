@@ -42,7 +42,7 @@ docs/                    Plan, reuse audit, AI architecture, threat model, ADRs
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"
-cp ../.env.example ../.env            # then edit if needed
+cp .env.example .env                  # then edit if needed (read from backend/.env)
 alembic upgrade head                  # creates the database schema
 pytest -q                             # run the test suite
 uvicorn app.main:app --reload --port 8000

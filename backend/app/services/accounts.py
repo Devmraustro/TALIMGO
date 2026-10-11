@@ -270,16 +270,16 @@ def delete_account(db: DbSession, user: User, *, password: str) -> None:
 
     user_id = user.id
 
-    thread_ids = [row.id for row in db.scalars(select(TutorThread.id).where(TutorThread.user_id == user_id))]
+    # NB: selecting a single column yields the ids themselves; selecting `.id` again raised
+    # AttributeError, so deleting an account that had ever used the tutor failed with a 500.
+    thread_ids = list(db.scalars(select(TutorThread.id).where(TutorThread.user_id == user_id)))
     if thread_ids:
         db.query(TutorMessage).filter(TutorMessage.thread_id.in_(thread_ids)).delete(
             synchronize_session=False
         )
         db.query(TutorThread).filter(TutorThread.id.in_(thread_ids)).delete(synchronize_session=False)
 
-    practice_ids = [
-        row.id for row in db.scalars(select(PracticeSession.id).where(PracticeSession.user_id == user_id))
-    ]
+    practice_ids = list(db.scalars(select(PracticeSession.id).where(PracticeSession.user_id == user_id)))
     if practice_ids:
         db.query(PracticeResponse).filter(PracticeResponse.session_id.in_(practice_ids)).delete(
             synchronize_session=False
@@ -288,9 +288,7 @@ def delete_account(db: DbSession, user: User, *, password: str) -> None:
             synchronize_session=False
         )
 
-    attempt_ids = [
-        row.id for row in db.scalars(select(DiagnosticAttempt.id).where(DiagnosticAttempt.user_id == user_id))
-    ]
+    attempt_ids = list(db.scalars(select(DiagnosticAttempt.id).where(DiagnosticAttempt.user_id == user_id)))
     if attempt_ids:
         db.query(DiagnosticResponse).filter(DiagnosticResponse.attempt_id.in_(attempt_ids)).delete(
             synchronize_session=False
@@ -302,7 +300,7 @@ def delete_account(db: DbSession, user: User, *, password: str) -> None:
     db.query(Evidence).filter(Evidence.user_id == user_id).delete(synchronize_session=False)
     db.query(MasteryEstimate).filter(MasteryEstimate.user_id == user_id).delete(synchronize_session=False)
 
-    plan_ids = [row.id for row in db.scalars(select(Plan.id).where(Plan.user_id == user_id))]
+    plan_ids = list(db.scalars(select(Plan.id).where(Plan.user_id == user_id)))
     if plan_ids:
         db.query(PlanItem).filter(PlanItem.plan_id.in_(plan_ids)).delete(synchronize_session=False)
         db.query(PlanWeek).filter(PlanWeek.plan_id.in_(plan_ids)).delete(synchronize_session=False)

@@ -8,7 +8,9 @@ Fail-closed rules (AGENTS.md section 6):
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -16,7 +18,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.ai.policy import assert_local_endpoint
 
-_ENV_FILE = ".env"
+# Settings are read from files with absolute paths, never from the process working directory: the
+# file next to the package (``backend/.env``) is authoritative, and a repository-root ``.env`` — the
+# layout the README used before this was corrected — is still merged as a fallback. pydantic-settings
+# merges a tuple in order with the LAST file winning. ``TALIMGO_ENV_FILE`` overrides both (deployments
+# that inject configuration some other way, e.g. systemd ``EnvironmentFile``, need no file at all).
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = _BACKEND_ROOT.parent
+_ENV_FILES = (_REPO_ROOT / ".env", _BACKEND_ROOT / ".env")
 _MIN_PRODUCTION_SECRET_LENGTH = 32
 
 
@@ -24,7 +33,7 @@ class Settings(BaseSettings):
     """Environment-backed settings. Prefix: ``TALIMGO_``."""
 
     model_config = SettingsConfigDict(
-        env_file=_ENV_FILE, env_prefix="TALIMGO_", extra="ignore", case_sensitive=False
+        env_file=_ENV_FILES, env_prefix="TALIMGO_", extra="ignore", case_sensitive=False
     )
 
     env: Literal["development", "test", "production"] = "development"
@@ -32,6 +41,10 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
 
     database_url: str = "sqlite:///./talimgo.db"
+
+    # Reject oversized request bodies before they are parsed (default 128 KiB is generous for JSON;
+    # files, if the product ever accepts them, must go through a separate, explicit upload path).
+    max_request_bytes: int = Field(default=131_072, ge=1024, le=8_388_608)
 
     # --- Authentication policy ---
     session_ttl_hours: int = Field(default=24 * 14, ge=1, le=24 * 90)
@@ -93,7 +106,8 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    override = os.environ.get("TALIMGO_ENV_FILE", "").strip()
+    return Settings(_env_file=override) if override else Settings()
 
 
 def reset_settings_cache() -> None:
