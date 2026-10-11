@@ -25,6 +25,7 @@ ITEM_ID = "pit_legacy_migration_check"
 def run_alembic(env: dict[str, str], *arguments: str) -> None:
     subprocess.run([sys.executable, "-m", "alembic", *arguments], check=True, env=env)
 
+
 def main() -> None:
     database_url = os.environ.get("TALIMGO_DATABASE_URL", "")
     if not database_url.startswith("postgresql+psycopg://"):
