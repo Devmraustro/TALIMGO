@@ -601,3 +601,19 @@ options expose only an id and a label.
 **Deployment boundary.** This guard is process-wide, not a distributed semaphore: two API worker processes each have their own configured capacity. A production multi-worker deployment must additionally cap aggregate concurrency at the model host or proxy. The guide and threat model now distinguish this boundary rather than calling it a global cap. This environment has not exercised multiple workers, PostgreSQL, or an actual model runtime.
 
 **Regression coverage added.** `tests/test_write_rate_limits.py` covers 429 responses, continued read access, learner isolation and UTC-minute rollover. `tests/test_model_concurrency.py` covers bounded waiting, releasing the slot after exceptions, and the saturated-API path proving that a 503 consumes no AI allowance and stores no tutor exchange. These tests and the full CI results must be checked on the pushed commit before this checkpoint is called complete.
+
+### 7.15 Populated legacy-plan migration verification on PostgreSQL
+
+The PostgreSQL CI job now tests the risky migration against existing data, not just an empty database.
+Before upgrading to head, `backend/scripts/postgres_legacy_migration.py` migrates the disposable CI
+database to `8f1c2d4e6a70`, inserts a valid legacy learner, goal, objective, plan, plan week and plan
+item, and then runs the remaining migration chain. It asserts the plan survives with
+`starts_on = CURRENT_DATE`, the `starts_on` schema constraint is NOT NULL, and the existing plan item
+survives while the new `scheduled_day` and `completed_at` fields are null. It finally runs
+`alembic check` to verify the resulting schema matches the current models. The following PostgreSQL
+steps re-apply the migration idempotently and run the API persistence smoke test.
+
+**Boundary.** This is a disposable PostgreSQL 16 CI rehearsal with one legacy plan, not a production
+backup/restore, large-table lock-duration, or multi-million-row migration test. Those remain part of
+deployment acceptance.
+

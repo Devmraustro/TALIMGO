@@ -52,11 +52,14 @@ automatically in production (`/api/docs`, `/api/openapi.json` return 404).
 * Use PostgreSQL: `TALIMGO_DATABASE_URL=postgresql+psycopg://user:password@127.0.0.1:5432/talimgo`.
 * Migrations are the only schema authority in production (`alembic upgrade head`); `alembic check`
   must report no drift before a deploy.
-* CI runs the full Alembic migration chain and `alembic check` on PostgreSQL 16, then starts the
-  app against that migrated schema and smoke-tests account/session creation plus goal write/read.
-  The full API behaviour suite still uses per-test SQLite databases, so this is not a claim of complete
-  PostgreSQL parity. Before the first real deployment, also rehearse the `plans.starts_on NOT NULL`
-  migration with populated legacy plan rows and test backup/restore against the target PostgreSQL version.
+* CI runs the full Alembic migration chain and `alembic check` on PostgreSQL 16, including a
+  dedicated populated-legacy-data rehearsal: it creates an account, goal, plan, week and plan item
+  under revision `8f1c2d4e6a70`, upgrades to head, and verifies the plan's `starts_on` is backfilled
+  to the database's current date, is non-nullable, and that the existing plan item survives with its
+  optional schedule fields null. The API smoke test then checks account/session creation and goal
+  write/read. The full API behaviour suite still uses per-test SQLite databases, so this is not a
+  claim of complete PostgreSQL parity. Before production, rehearse backup/restore against the target
+  PostgreSQL version and run the full pilot acceptance checklist.
 * The AI usage counter uses a conditional `UPDATE ... WHERE count < limit` (atomic per row on both
   SQLite and PostgreSQL) rather than a read-then-write; that is what makes the per-learner budget
   safe under concurrency (see `backend/tests/test_ai_quota.py`).
