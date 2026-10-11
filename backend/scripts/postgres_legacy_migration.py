@@ -22,9 +22,8 @@ WEEK_ID = "pwk_legacy_migration_check"
 ITEM_ID = "pit_legacy_migration_check"
 
 
-def run_alembic(revision: str, env: dict[str, str]) -> None:
-    subprocess.run([sys.executable, "-m", "alembic", "upgrade", revision], check=True, env=env)
-    
+def run_alembic(env: dict[str, str], *arguments: str) -> None:
+    subprocess.run([sys.executable, "-m", "alembic", *arguments], check=True, env=env)
 
 def main() -> None:
     database_url = os.environ.get("TALIMGO_DATABASE_URL", "")
@@ -40,7 +39,7 @@ def main() -> None:
 
     # CI provides a fresh, disposable database. Upgrading directly to the previous revision creates
     # the legacy shape without the schedule columns added by 9b2e4f6a8c10.
-    run_alembic(LEGACY_REVISION, env)
+    run_alembic(env, "upgrade", LEGACY_REVISION)
     engine = create_engine(database_url, pool_pre_ping=True)
     now = datetime.now(timezone.utc)
 
@@ -160,8 +159,8 @@ def main() -> None:
                 },
             )
 
-        run_alembic("head", env)
-        run_alembic("check", env)
+        run_alembic(env, "upgrade", "head")
+        run_alembic(env, "check")
 
         with engine.connect() as connection:
             plan = connection.execute(
