@@ -28,9 +28,7 @@ def run_alembic(env: dict[str, str], *arguments: str) -> None:
 def main() -> None:
     database_url = os.environ.get("TALIMGO_DATABASE_URL", "")
     if not database_url.startswith("postgresql+psycopg://"):
-        raise SystemExit(
-            "Refusing to run: TALIMGO_DATABASE_URL must target PostgreSQL via psycopg."
-        )
+        raise SystemExit("Refusing to run: TALIMGO_DATABASE_URL must target PostgreSQL via psycopg.")
 
     env = os.environ.copy()
     env.setdefault("TALIMGO_ENV", "test")
@@ -164,13 +162,17 @@ def main() -> None:
         run_alembic(env, "check")
 
         with engine.connect() as connection:
-            plan = connection.execute(
-                text(
-                    "SELECT id, starts_on, starts_on = CURRENT_DATE AS starts_today, "
-                    "validation_report->>'source' AS source FROM plans WHERE id = :id"
-                ),
-                {"id": PLAN_ID},
-            ).mappings().one_or_none()
+            plan = (
+                connection.execute(
+                    text(
+                        "SELECT id, starts_on, starts_on = CURRENT_DATE AS starts_today, "
+                        "validation_report->>'source' AS source FROM plans WHERE id = :id"
+                    ),
+                    {"id": PLAN_ID},
+                )
+                .mappings()
+                .one_or_none()
+            )
             if plan is None:
                 raise AssertionError("Legacy plan was lost during the migration.")
             if not plan["starts_today"] or plan["source"] != "legacy-migration-ci":
@@ -186,12 +188,14 @@ def main() -> None:
             if nullability != "NO":
                 raise AssertionError("plans.starts_on must be NOT NULL after the migration.")
 
-            item = connection.execute(
-                text(
-                    "SELECT id, status, scheduled_day, completed_at FROM plan_items WHERE id = :id"
-                ),
-                {"id": ITEM_ID},
-            ).mappings().one_or_none()
+            item = (
+                connection.execute(
+                    text("SELECT id, status, scheduled_day, completed_at FROM plan_items WHERE id = :id"),
+                    {"id": ITEM_ID},
+                )
+                .mappings()
+                .one_or_none()
+            )
             if item is None:
                 raise AssertionError("Legacy plan item was lost during the migration.")
             if item["status"] != "pending" or item["scheduled_day"] is not None:
