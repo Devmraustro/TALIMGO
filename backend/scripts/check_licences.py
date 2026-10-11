@@ -63,7 +63,7 @@ def main() -> int:
                 break
         else:
             for token, description in WARN.items():
-                if token in text:
+                if _has_policy_token(text, token):
                     message = f"{name}: {description} ({token})"
                     (warnings if arguments.allow_gpl_build_tools else failures).append(message)
                     break
