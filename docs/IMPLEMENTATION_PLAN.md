@@ -468,7 +468,9 @@ does not rest solely on `SameSite=Lax`), and bodies are refused above `TALIMGO_M
 unbounded. Session cookie flags are now asserted by tests (HttpOnly, SameSite=Lax, Path=/, Secure in
 production). The per-learner model allowance became an atomic claim made **before** the model call
 instead of a read-then-write check, closing a check-then-act race; the claim is deliberately not
-refunded when a call fails, because the limit exists to bound resource use and retry pressure. The
+refunded when a call fails, because the limit exists to bound resource use and retry pressure. (That
+claim was only *half* true until §7.13 below: the reservation was durable against concurrency but not
+against failure.) The
 full review — including what was found, what changed and what remains owned by the deployment — is in
 `docs/SECURITY_THREAT_MODEL.md`, "Security review of session, request and resource handling".
 
@@ -534,3 +536,57 @@ whole page and after dynamic updates; colour contrast against the real rendered 
 at 200–400%; virtual-cursor reading order and numeral/date presentation in Arabic; behaviour with an
 actual screen reader (NVDA, VoiceOver, TalkBack); touch target sizes on a phone; and the teacher/admin
 flows, which have no interface yet.
+
+### 7.13 Making the model-allowance reservation actually durable (review round)
+
+**Bug found by review.** The allowance was claimed on the *request* session, but the router commits
+that session only after a fully validated reply has been stored. Every failure after the claim —
+local runtime unreachable, HTTP error from the runtime, non-JSON or empty completion, a reply that
+failed validation — ended in `Session.close()`, which rolls back. The slot therefore came *back*, and
+the documented policy ("an attempted request counts") was untrue. Two tests had certified it: the
+integration tests never asserted usage after a failure, and the unit test named
+`test_a_failed_model_call_still_consumes_its_slot` never called a model at all.
+
+**Fix.** `answer()` now (1) checks configuration, (2) builds grounding — so an unknown objective or a
+lesson from another objective is refused before any quota is spent, (3) claims the slot through
+`reserve_usage_committed()`, which uses its **own short session and commits it** before inference
+starts, and only then (4) calls the local model and (5) persists the exchange on success. A dedicated
+session is used precisely so the reservation cannot drag unrelated request state into a commit, and so
+the request session can still roll back cleanly when the call fails. Concurrency safety is unchanged:
+the claim is still a single conditional `UPDATE ... WHERE count < limit`.
+
+Unvalidated exchanges remain unpersisted — nothing is written to `tutor_threads`/`tutor_messages`
+until the reply has passed validation, so a failed attempt leaves no thread, no learner message and no
+model output behind. A refused request (no consent, unknown objective, mismatched lesson, exhausted
+allowance) consumes nothing; a *failed* request consumes one slot, which is the documented policy.
+
+**Error mapping (P2).** `LocalModelResponseError` — HTTP error status, non-JSON body, empty
+completion — had no handler in the tutor router, so it surfaced as an unhandled 500. It is now mapped
+to **502** with a fixed, safe sentence: the upstream status line, response body, model output and any
+credential-shaped string in it never reach the learner, while the detail goes to the server log. The
+sibling 503 ("runtime did not answer") sentence was made equally generic, so neither branch discloses
+the configured endpoint address or the transport exception class any more; tests assert that both
+strings are free of internal detail.
+
+**Feedback localisation (P4).** `_canonical_answer()` asked for the option label with a hard-coded
+`"en"`, so an Arabic learner read an Arabic prompt, Arabic options and an Arabic explanation, then an
+English "correct answer" line. The authored choices are code literals (`int`, `float`) that are
+identical in both languages, which is why nothing caught it. The label is now resolved per locale with
+an English fallback, while short-answer canonical values (`"15"`) and literal code tokens are returned
+unchanged — translating those would change what the learner is told is correct.
+
+**Evidence.** `tests/test_tutor_quota_durability.py` (11 tests) drives six genuine failure paths
+through the real tutor API (unreachable runtime, HTTP 500 from the runtime including a
+credential-shaped body that must not leak, non-JSON output, empty completion, a citation outside the
+context, a prohibited claim). Each asserts the HTTP status, that no tutor exchange or thread was
+stored, that `GET /api/tutor/usage` reports the slot as consumed, and that a follow-up with a limit of
+one is refused with 429; plus the happy-path count, the "refused before the claim" cases (unknown
+objective, mismatched lesson, missing consent consume nothing and never reach the model) and an
+API-level concurrency test (two interleaved requests, limit 1 → exactly one 200, one 429, exactly one
+model call). All six failure cases fail against the previous implementation and pass against this one.
+`tests/test_feedback_localisation.py` (12 tests) covers the canonical answer in both locales —
+including a synthetic item with genuinely different Arabic and English labels, because the authored
+data cannot distinguish the bug — and asserts that short answers and code tokens pass through
+untouched. The item-payload test in `tests/test_localisation.py` no longer contains a vacuous
+`or True`: it now asserts the exact public field set, that no internal marker is serialised, and that
+options expose only an id and a label.

@@ -79,14 +79,22 @@ def test_concurrent_claims_cannot_exceed_the_limit(client) -> None:
         assert db.query(AiUsage).filter(AiUsage.user_id == user_id).count() == 1
 
 
-def test_a_failed_model_call_still_consumes_its_slot(client) -> None:
-    """Deliberate: the limit bounds resource use and retry pressure, not only successful replies."""
+def test_a_claim_is_never_refunded_by_the_caller(client) -> None:
+    """A claim is permanent once made: nothing in the API gives a slot back.
+
+    This is the *unit-level* half of the policy. The integration half — a genuinely failing local model
+    call (unreachable runtime, HTTP error, unusable completion, rejected reply) still consuming its
+    slot through the tutor API — lives in tests/test_tutor_quota_durability.py. The previous name of
+    this test claimed the integration property while never calling a model at all.
+    """
     user_id = _user_id(client, "quota-failure@example.com")
     with session_scope() as db:
         reserve_usage(db, user_id, limit=1)
         db.commit()
     with session_scope() as db, pytest.raises(AiBudgetExceededError):
         reserve_usage(db, user_id, limit=1)
+    with session_scope() as db:
+        assert usage_today(db, user_id) == 1, "the refused claim must not change the stored count"
 
 
 def test_the_budget_is_per_learner_and_per_day(client) -> None:

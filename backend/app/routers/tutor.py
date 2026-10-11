@@ -6,10 +6,12 @@ allowance exhausted. There is no fallback provider.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.ai.adapter import LocalModelUnavailable
+from app.ai.adapter import LocalModelResponseError, LocalModelUnavailable
 from app.ai.grounding import GroundingMismatchError
 from app.ai.schemas import TutorOutputRejected
 from app.ai.tutor import AiBudgetExceededError, AiDisabledError, answer, usage_today
@@ -17,6 +19,8 @@ from app.config import get_settings
 from app.deps import CurrentUser, Db
 from app.models import ConsentRecord, Objective, TutorMessage, TutorThread
 from app.schemas import TutorAskIn, TutorReplyOut
+
+logger = logging.getLogger("talimgo.tutor")
 
 router = APIRouter(prefix="/api/tutor", tags=["tutor"])
 
@@ -73,10 +77,29 @@ def ask(payload: TutorAskIn, user: CurrentUser, db: Db) -> TutorReplyOut:
     except AiBudgetExceededError as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
     except LocalModelUnavailable as exc:
-        # Explicit failure: the learner is told tutoring is offline; nothing else is contacted.
+        # Explicit failure: the learner is told tutoring is offline; nothing else is contacted. The
+        # endpoint address and the transport error class go to the log, not to the learner (the same
+        # rule as the response-error branch below).
+        logger.warning("local model unavailable: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"Tutoring is unavailable: {exc}",
+            detail=(
+                "Tutoring is unavailable right now: the local model did not answer. Your message "
+                "was not sent anywhere else. The request still counts against today's tutoring limit."
+            ),
+        ) from exc
+    except LocalModelResponseError as exc:
+        # The runtime answered but TALIMGO cannot use the answer: HTTP error status, non-JSON body or
+        # an empty completion. The learner gets a fixed, safe sentence — never the upstream status
+        # line, body, model output or a traceback. Operators get the detail in the server log, which
+        # is where diagnostics belong (the reserved quota slot is intentionally not refunded).
+        logger.warning("local model returned an unusable response: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "The local model returned a response TALIMGO could not use, so nothing was shown "
+                "or stored. The request still counts against today's tutoring limit."
+            ),
         ) from exc
     except TutorOutputRejected as exc:
         raise HTTPException(

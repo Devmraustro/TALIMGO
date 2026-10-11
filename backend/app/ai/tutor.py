@@ -4,6 +4,16 @@ Behaviour that is deliberately hard-coded here rather than delegated to the mode
   * the hint ladder (level 0 concept → 3 worked step), so the tutor does not hand over answers;
   * the refusal list (prohibited claims), enforced after generation by the validator;
   * the instruction that learner text is data, never instructions.
+
+Transaction boundaries (see docs/IMPLEMENTATION_PLAN.md §7.13 and docs/LOCAL_AI_ARCHITECTURE.md):
+
+  * configuration, objective and grounding checks happen **before** any allowance is spent, so a
+    request that cannot be served never costs the learner a slot;
+  * the daily allowance is claimed through :func:`reserve_usage_committed`, i.e. in its own committed
+    transaction, **before** inference starts — so concurrent requests cannot overshoot the limit and a
+    failed call still consumes its slot, as documented;
+  * the tutor exchange is written to the caller's session only after the reply passed validation, so a
+    failed request leaves no thread, no learner message and no model output behind.
 """
 
 from __future__ import annotations
@@ -19,6 +29,7 @@ from app.ai.adapter import LocalModelClient, ModelMessage, ModelRequest
 from app.ai.grounding import build_grounding
 from app.ai.schemas import TutorOutputRejected, validate_tutor_reply
 from app.config import Settings
+from app.db import session_scope
 from app.models import AiUsage, TutorMessage, TutorThread, User
 from app.utils import utcnow
 
@@ -97,6 +108,23 @@ def reserve_usage(db: DbSession, user_id: str, *, limit: int, now: datetime | No
     )
 
 
+def reserve_usage_committed(user_id: str, *, limit: int, now: datetime | None = None) -> int:
+    """Claim one unit of today's allowance in its **own committed transaction**.
+
+    Why a separate session rather than the request session: the request session is only committed by
+    the router after a fully validated reply has been stored. Reserving there meant that any failure
+    after the reservation (runtime down, HTTP error from the runtime, unusable completion, rejected
+    reply) ended in ``Session.close()`` — a rollback — so the documented policy ("an attempted request
+    counts") was not actually true: the slot came back. Committing the claim here makes it durable
+    independently of what the request does afterwards, and it also keeps the reservation from
+    committing anything else the request session happens to be holding.
+    """
+    with session_scope() as db:
+        used = reserve_usage(db, user_id, limit=limit, now=now)
+        db.commit()
+        return used
+
+
 def build_messages(
     context_markdown: str, question: str, citation_ids: set[str], locale: str
 ) -> list[ModelMessage]:
@@ -131,12 +159,16 @@ def answer(
         )
 
     moment = now or utcnow()
-    # Reserved before any work is done: the budget cannot be exceeded by concurrent requests, and a
-    # request that fails later still consumed its slot (documented in reserve_usage).
-    used = reserve_usage(db, user.id, limit=settings.ai_daily_requests_per_learner, now=moment)
 
+    # Everything that can reject the request without touching the model happens first, so a request
+    # refused for a mismatched lesson or an unknown objective never spends the learner's allowance:
+    # grounding is read from the database and raises GroundingMismatchError before any quota is used.
     context = build_grounding(db, objective_id=objective_id, lesson_id=lesson_id, locale=locale)
     messages = build_messages(context.markdown, question, context.citation_ids, locale)
+
+    # The claim is committed on its own before inference starts: it bounds expensive local model work
+    # under concurrency and survives every failure path below (see reserve_usage_committed).
+    used = reserve_usage_committed(user.id, limit=settings.ai_daily_requests_per_learner, now=moment)
 
     # Resolved at call time (not as a default argument) so tests and future runtimes can swap the
     # client, and so monkeypatching the module attribute has its expected effect.

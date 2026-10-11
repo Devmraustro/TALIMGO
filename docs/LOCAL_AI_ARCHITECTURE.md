@@ -128,7 +128,9 @@ The evaluation record will name the weights, their licence, and the measured res
 | Staging | 1 GPU (≥16 GB VRAM) | vLLM | 8–14 B quantised |
 | Production (initial) | 1 GPU per node, horizontal scale-out | vLLM with prefix caching | 8–14 B quantised; escalation path to a larger model if evaluation demands it |
 
-Cost control: request-level token ceilings, per-learner daily caps, prompt-size discipline (retrieve the
+Cost control: request-level token ceilings, per-learner daily caps (claimed durably, in a committed
+transaction, before inference starts, so concurrency cannot overshoot and a failed call cannot hand the
+slot back), prompt-size discipline (retrieve the
 smallest sufficient context), response caching keyed by (objective, hint level, question hash), and
 graceful degradation that keeps lesson/practice paths working with no model at all.
 
@@ -163,6 +165,8 @@ graceful degradation that keeps lesson/practice paths working with no model at a
 | Model returns invalid JSON or fails schema validation | Rejected, logged as a quality event, learner sees a graceful “couldn’t produce a usable answer” message; **nothing is stored** |
 | Model returns a prohibited claim (job/income/mastery guarantee) | Blocked by the claim filter, replaced with a safe restatement, logged |
 | Model is slow | Per-request timeout with a clear message; learning paths never block on the tutor |
+| Model answers unusably (HTTP error, non-JSON, empty completion) | The request is refused with 502 and a fixed learner-facing sentence; the upstream detail goes to the server log, never to the client, and the reserved daily slot stays consumed |
+| Request refused before inference (no consent, unknown objective, mismatched lesson, allowance exhausted) | No quota is consumed and the local model is never called |
 | Suspected prompt injection | Instruction-following attempt refused, logged with the offending section hash (not the content) |
 
 There is **no third option where the request silently goes somewhere else** — that is the whole point
