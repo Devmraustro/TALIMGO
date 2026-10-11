@@ -68,9 +68,7 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
     if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
         try:
-            reserve_write_request_committed(
-                user.id, limit=get_settings().write_rate_limit_per_minute
-            )
+            reserve_write_request_committed(user.id, limit=get_settings().write_rate_limit_per_minute)
         except WriteRateLimitExceeded as exc:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

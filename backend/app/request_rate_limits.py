@@ -24,9 +24,7 @@ class WriteRateLimitExceeded(RuntimeError):
         super().__init__("Authenticated write rate limit reached.")
 
 
-def reserve_write_request_committed(
-    user_id: str, *, limit: int, now: datetime | None = None
-) -> int:
+def reserve_write_request_committed(user_id: str, *, limit: int, now: datetime | None = None) -> int:
     """Atomically claim one write in the current UTC minute and commit it independently.
 
     Window rollover and increment are one UPDATE against the old row values. This avoids the

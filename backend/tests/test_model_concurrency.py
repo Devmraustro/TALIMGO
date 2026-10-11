@@ -38,17 +38,16 @@ def test_model_gate_rejects_when_the_only_slot_is_occupied() -> None:
 
 
 def test_model_gate_releases_after_generation_raises() -> None:
-    with pytest.raises(RuntimeError, match="synthetic runtime failure"), model_slot(
-        limit=1, wait_seconds=0.02
+    with (
+        pytest.raises(RuntimeError, match="synthetic runtime failure"),
+        model_slot(limit=1, wait_seconds=0.02),
     ):
         raise RuntimeError("synthetic runtime failure")
     with model_slot(limit=1, wait_seconds=0.02):
         pass
 
 
-def test_busy_tutor_request_does_not_consume_daily_allowance(
-    ai_client_factory, monkeypatch
-) -> None:
+def test_busy_tutor_request_does_not_consume_daily_allowance(ai_client_factory, monkeypatch) -> None:
     client = ai_client_factory(TALIMGO_AI_MAX_CONCURRENT_REQUESTS=1)
     register(client)
 
