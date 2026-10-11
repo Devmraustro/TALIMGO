@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import create_engine, text
 
@@ -41,7 +41,7 @@ def main() -> None:
     # the legacy shape without the schedule columns added by 9b2e4f6a8c10.
     run_alembic(env, "upgrade", LEGACY_REVISION)
     engine = create_engine(database_url, pool_pre_ping=True)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     try:
         with engine.begin() as connection:
@@ -49,7 +49,8 @@ def main() -> None:
                 text(
                     "INSERT INTO users "
                     "(id, email, password_hash, display_name, role, is_active, created_at, updated_at) "
-                    "VALUES (:id, :email, :password_hash, :display_name, :role, :is_active, :created_at, :updated_at)"
+                    "VALUES (:id, :email, :password_hash, :display_name, :role, :is_active, "
+                    ":created_at, :updated_at)"
                 ),
                 {
                     "id": USER_ID,
