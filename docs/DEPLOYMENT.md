@@ -35,6 +35,28 @@ cd backend
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
 
+### Production preflight
+
+Run this against the *same* environment the API will start in, before starting it (and again on every
+configuration change). It reads the application's settings and checks the production requirements in
+this document, prints only names and verdicts — never values, so its output is safe to share — and
+exits non-zero if anything is wrong:
+
+```bash
+cd backend && .venv/bin/python scripts/check_production_config.py
+```
+
+It also covers the one requirement the application itself does not enforce:
+
+* `TALIMGO_ENV=production`, and the API then serves no interactive docs;
+* `TALIMGO_SESSION_SECRET` of 32+ characters without a placeholder marker (the application refuses a
+  weak or development secret in production, so the preflight reports that refusal);
+* `TALIMGO_DATABASE_URL` on PostgreSQL. **The application will start on SQLite in production mode** —
+  the deployment requirement is PostgreSQL 14+, and this check is what enforces it;
+* at least one explicit `TALIMGO_ALLOWED_ORIGINS` entry, with no wildcard (the application refuses a
+  wildcard at startup);
+* tutoring off, or enabled with a model name and a local endpoint.
+
 Startup is validated and fails closed:
 
 * production refuses to start without a strong session secret;
@@ -134,6 +156,42 @@ Proxy rules the application assumes but does not enforce itself:
 The interface is a static build (`frontend/dist`) served by Nginx from the same origin. It calls the API
 through `/api/...`, so this avoids adding a separate interface origin to `TALIMGO_ALLOWED_ORIGINS`.
 
+### Where the built interface is hosted
+
+TALIMGO's session cookie is `HttpOnly`, `Secure` in production and **`SameSite=Lax`**
+(`backend/app/routers/auth.py`). That single fact decides which hostings work, because a `Lax` cookie
+is not sent on cross-site requests:
+
+1. **One host (supported, tested).** Nginx serves `frontend/dist` and proxies `/api` to FastAPI on the
+   same origin — the checked-in `deploy/nginx/talimgo.conf.example`. Cookies are first-party, CORS is
+   not involved, and CI exercises exactly this shape (edge smoke test, and the post-deployment
+   verifier against a real edge and API).
+2. **Vercel for the interface, API on another host, joined by a Vercel rewrite (supported,
+   configuration not yet verified here).** Vercel proxies `/api/*` to the API host, so the *browser*
+   still sees one origin and the `Lax` cookie keeps working. Add to `frontend/vercel.json` (the file
+   already carries the interface's security headers) after replacing the API host:
+
+   ```json
+   "rewrites": [{ "source": "/api/(.*)", "destination": "https://<api-host>/api/$1" }]
+   ```
+
+   The API must then accept that traffic: `TALIMGO_ALLOWED_ORIGINS` still only needs the browser-facing
+   origin (`https://<vercel-host>`), because the rewrite is server-side. This topology was **not**
+   exercised in a real Vercel project during this work — no authorised API host existed — so treat it
+   as documented-but-unverified until the post-deployment verifier passes on it.
+3. **A separate API origin called directly by the browser (not supported).** With `SameSite=Lax` the
+   session cookie would not be sent, so sign-in would silently fail. Supporting it needs a
+   security-reviewed change (`SameSite=None; Secure` plus a CSRF re-review) and an exact
+   `TALIMGO_ALLOWED_ORIGINS` entry; do not "fix" it by disabling cookie protections. If the browser
+   origin and the API origin differ and no rewrite is in place, the interface now says so plainly
+   instead of showing a bare status code.
+
+Hosting the FastAPI backend *on* Vercel is out of scope: it needs a long-lived process, a persistent
+PostgreSQL database, and (for tutoring) a local model runtime on TALIMGO-controlled infrastructure.
+
+The current state of the existing Vercel project, and what only the owner can check there, is recorded
+in [`VERCEL_DEPLOYMENT_STATUS.md`](./VERCEL_DEPLOYMENT_STATUS.md).
+
 ## 5. Secrets
 
 * `TALIMGO_SESSION_SECRET` — 32+ random bytes, generated on the server (`openssl rand -base64 48`),
@@ -143,6 +201,32 @@ through `/api/...`, so this avoids adding a separate interface origin to `TALIMG
 * Model runtime credentials (if the local server uses an API key) stay on the model host; the API
   process needs only the endpoint URL.
 * `.gitignore` already excludes `.env`, `*.db`, `data/`, `secrets/`, `model_cache/` and weight files.
+
+### Environment variable checklist (names, never values)
+
+Values are created by the owner in the platform's secret store; nothing here is a value, and no value
+belongs in the repository, an issue, a chat message or a log. `backend/.env.example` documents the same
+names with non-production placeholders.
+
+| Variable | Purpose | Where it is set | Notes |
+| --- | --- | --- | --- |
+| `TALIMGO_ENV` | Selects production validation | API service | `production` on a real deployment; the app then refuses weak secrets, serves no API docs and requires the schema to exist |
+| `TALIMGO_DATABASE_URL` | PostgreSQL connection | API service (secret) | Must be a `postgresql+psycopg://` URL on PostgreSQL |
+| `TALIMGO_SESSION_SECRET` | Signs/stores sessions | API service (secret) | Generate on the server; rotating it ends every session |
+| `TALIMGO_ALLOWED_ORIGINS` | CORS allow-list | API service | Comma-separated exact origins; wildcards are rejected at startup. Not needed when the interface is same-origin |
+| `TALIMGO_AI_ENABLED` | Turns tutoring on | API service | Keep `false` until a local runtime is provisioned and evaluated |
+| `TALIMGO_AI_BASE_URL` | Local model endpoint | API service | Local-only by policy; startup refuses a non-local endpoint while `TALIMGO_AI_STRICT=true` |
+| `TALIMGO_AI_MODEL` | Local model name | API service | Required when AI is enabled |
+| `TALIMGO_AI_DIALECT` | Runtime protocol | API service | `ollama` or `openai_compatible` |
+| `TALIMGO_SESSION_TTL_HOURS`, `TALIMGO_MAX_LOGIN_ATTEMPTS`, `TALIMGO_LOGIN_LOCKOUT_MINUTES`, `TALIMGO_MIN_PASSWORD_LENGTH`, `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE`, `TALIMGO_MAX_REQUEST_BYTES` | Abuse and size limits | API service | Defaults are documented in `backend/.env.example`; change deliberately |
+| `TALIMGO_AI_TIMEOUT_SECONDS`, `TALIMGO_AI_MAX_OUTPUT_TOKENS`, `TALIMGO_AI_MAX_CONCURRENT_REQUESTS`, `TALIMGO_AI_QUEUE_TIMEOUT_SECONDS`, `TALIMGO_AI_DAILY_REQUESTS_PER_LEARNER` | Model resource bounds | API service | Concurrency is per worker process; cap the aggregate at the model host |
+| `TALIMGO_SEED_ON_STARTUP` | Loads the authored curriculum at boot | API service | Leave `false` in production and load content deliberately |
+| `TALIMGO_ENV_FILE` | Points settings at an env file | API service | Optional; uses an absolute path |
+
+The interface itself needs **no** build-time variables: it always calls `/api` on its own origin, which
+is what keeps the `Lax` session cookie usable (see "Where the built interface is hosted"). If you
+configure a hosting provider, do not add an "API base URL" variable to it — put the routing in the
+provider's proxy/rewrite configuration instead.
 
 ## 6. Local model isolation and outbound restrictions
 
@@ -299,6 +383,7 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 
 ## 11. First-deployment checklist
 
+- [ ] `python backend/scripts/check_production_config.py` passes against the production environment.
 - [ ] PostgreSQL running; `alembic upgrade head` applied; `alembic check` clean.
 - [ ] `TALIMGO_ENV=production`, strong `TALIMGO_SESSION_SECRET`, exact `TALIMGO_ALLOWED_ORIGINS`.
 - [ ] TLS terminated by the proxy; HTTP redirects; `X-Forwarded-Proto` set by the proxy.
@@ -306,6 +391,8 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 - [ ] Egress from the API host blocked; model runtime reachable only on the private path.
 - [ ] `python -m app.maintenance --dry-run` runs; production backup and restore rehearsed against off-host storage.
 - [ ] `nginx -t` succeeds with the real hostname/certificate paths; HTTP redirect, HSTS, forwarding-header trust and edge rate limits verified.
+- [ ] Interface hosting decided and the matching configuration applied: one host with Nginx, or a provider rewrite that keeps the browser same-origin (see "Where the built interface is hosted").
+- [ ] No API base URL or API key is baked into the interface build; the interface was built from the current `frontend/` and served with the headers in `frontend/vercel.json` when hosted on Vercel.
 - [ ] Interface loaded in a real browser: it renders, its requests succeed, and the console reports no CSP violations (CI cannot check browser enforcement).
 - [ ] An API-generated 429 still arrives with its own message and `Retry-After` (not replaced by the edge page).
 - [ ] Post-deployment verification passes against the real hostname: `python backend/scripts/verify_deployment.py --base-url https://<host> --host <host>`

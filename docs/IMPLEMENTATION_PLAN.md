@@ -662,3 +662,50 @@ sign-up, goal creation, one diagnostic answer, Arabic RTL, narrow viewport reflo
 session refusal. Axe checks WCAG A/AA rules across representative light- and dark-theme screens. The
 journey is a useful regression gate, but it is not a live deployment test, a conformance declaration, or
 a substitute for checking the production edge/CSP and manual accessibility on the actual domain.
+
+### 7.18 Vercel deployment reconciliation and production preflight
+
+**CONFIRMED (external observation, 2026-10-11).** The Vercel deployment `talimgo-preview` serves the
+interface shell over HTTPS but has **no API behind it**: the public alias renders the sign-up screen and
+then shows "Request failed (404)." because its boot call `GET /api/auth/me` is answered by the static
+host. `GET /api/health` on that host returns 404. The immutable deployment URL redirects to Vercel's
+SSO login while the public alias is reachable, so deployment protection covers the per-deployment host,
+not the alias. Response headers could not be read from this environment (no TCP egress to `vercel.app`
+and no Vercel connector), so no header claim is made for that host. Full record and owner actions:
+`docs/VERCEL_DEPLOYMENT_STATUS.md`.
+
+**IMPLEMENTED.** `frontend/vercel.json` now carries the interface's browser-facing policy (HSTS without
+`includeSubDomains`/`preload`, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, the same
+`Permissions-Policy` as the API, and a CSP limited to the local bundle), and
+`frontend/src/deployment-config.test.ts` fails if the Nginx example and the Vercel file ever disagree.
+`docs/DEPLOYMENT.md` documents the three hosting topologies and why the `SameSite=Lax` session cookie
+makes a rewrite-based single origin the only supported cross-host arrangement, plus an environment
+variable checklist (names only) and a preflight command.
+
+**IMPLEMENTED.** `backend/scripts/check_production_config.py` checks a production environment before
+startup and prints names and verdicts only, never values, so its output is shareable. It enforces the
+requirement the application itself does not: **the API will start on SQLite in production mode**, while
+the deployment guide requires PostgreSQL 14+. It also covers `TALIMGO_ENV`, the session-secret rule,
+explicit origins, and tutoring off or local-with-a-named-model. CI runs it against a correct
+configuration and against SQLite, and requires the SQLite case to fail.
+
+**IMPLEMENTED.** The interface now tells the truth when its API is missing: a response that is not
+TALIMGO's JSON (a static host answering `/api/...`) is reported as "TALIMGO's API did not answer this
+request", and a request that never receives a response is reported as unreachable rather than as
+`Request failed (0)`. A mid-session 401 now returns the learner to sign-in with a bilingual
+"session has ended" message instead of leaving a dashboard whose actions all fail; a 401 from the
+sign-in form itself is not treated as an expiry. Four frontend tests cover the new paths, and both
+fixes were verified to fail their tests when reverted.
+
+**TESTED (this session).** 373 backend tests pass (1 skipped: the offline local-model test), 45
+frontend tests pass (1 skipped: the live-stack smoke test, which was then run explicitly with
+`TALIMGO_UI_SMOKE=1` and passed), `tsc --noEmit` and `vite build` are clean, migrations apply to an
+empty database with no drift, and the PostgreSQL rehearsals (legacy migration, backup/restore with
+row-count and revision comparison) pass against a real PostgreSQL 16.2. Dependency audits are clean
+after upgrading build tooling — a fresh virtual environment's seeded `setuptools 66.1.1` reports six
+advisories that are not TALIMGO dependencies, which is why the CI audit upgrades pip/setuptools/wheel
+first.
+
+**BLOCKED (owner).** Confirming Vercel build/deployment protection settings, choosing the hosting
+topology, and provisioning the API host with PostgreSQL all require owner access and decisions; the
+repository-side work for each is complete and documented.
