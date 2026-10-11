@@ -3,7 +3,13 @@
  *
  * Rules kept here centrally:
  *  - every request is same-origin (`/api/...`), so session cookies work and no CORS dance is needed;
+ *    the session cookie is `SameSite=Lax`, so a cross-origin API origin cannot work by configuration
+ *    alone — the production interface must be served from the same origin as the API, or from a host
+ *    that proxies `/api` to it (see docs/DEPLOYMENT.md, "Frontend hosting topologies");
  *  - errors surface as `ApiError` with the server's message, never a stack trace;
+ *  - a failure that is *not* a TALIMGO API response (network error, or a static host answering the
+ *    path itself) is reported as such instead of as a bare status code, because that is what an
+ *    interface deployed without its API looks like from the learner's side;
  *  - nothing in the frontend ever calls a model or an external host: the backend owns inference.
  */
 
@@ -17,14 +23,38 @@ export class ApiError extends Error {
   }
 }
 
+/** Status used when no HTTP response arrived at all (DNS/TLS/offline). */
+export const NO_RESPONSE = 0;
+
 const JSON_HEADERS = { "content-type": "application/json" };
 
+/**
+ * Called when an authenticated request answers 401, so the app can return the learner to the sign-in
+ * screen instead of leaving a stale dashboard on screen. Registered by `App` while signed in; a 401
+ * from the sign-in form itself is therefore never treated as an expired session.
+ */
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function onUnauthorized(handler: UnauthorizedHandler): () => void {
+  unauthorizedHandler = handler;
+  return () => {
+    if (unauthorizedHandler === handler) unauthorizedHandler = null;
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    credentials: "same-origin",
-    headers: init.body ? { ...JSON_HEADERS, ...(init.headers ?? {}) } : init.headers,
-    ...init,
-  });
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      credentials: "same-origin",
+      headers: init.body ? { ...JSON_HEADERS, ...(init.headers ?? {}) } : init.headers,
+      ...init,
+    });
+  } catch {
+    // The request never produced a response: offline, blocked, or no server on this origin.
+    throw new ApiError(NETWORK_MESSAGE, NO_RESPONSE);
+  }
 
   if (response.status === 204) {
     return undefined as T;
@@ -34,9 +64,25 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const payload = text ? safeJson(text) : null;
 
   if (!response.ok) {
+    if (!payload) {
+      // A TALIMGO API error is always JSON. Anything else on an `/api/...` path means the request did
+      // not reach TALIMGO: a static host, a proxy or an error page answered it instead.
+      throw new ApiError(notTheApiMessage(response.status), response.status);
+    }
+    if (response.status === 401) unauthorizedHandler?.();
     throw new ApiError(extractMessage(payload, response.status), response.status);
   }
   return payload as T;
+}
+
+const NETWORK_MESSAGE =
+  "TALIMGO's API could not be reached from this browser. Check your connection and try again.";
+
+function notTheApiMessage(status: number): string {
+  return (
+    `TALIMGO's API did not answer this request (HTTP ${status}). This interface may be deployed ` +
+    "without an API behind it, in which case no account action can work here."
+  );
 }
 
 function safeJson(text: string): unknown {

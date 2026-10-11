@@ -48,6 +48,21 @@ jobs:
           alembic upgrade head
           alembic check
 
+      - name: Production preflight accepts a correct configuration, and refuses SQLite in production
+        run: |
+          # A throwaway secret generated here, never a committed value: the check only reads the
+          # settings object, it never connects to the database or to a model.
+          export TALIMGO_ENV=production
+          export TALIMGO_SESSION_SECRET="$(openssl rand -hex 32)"
+          export TALIMGO_ALLOWED_ORIGINS=https://talimgo.example
+          export TALIMGO_AI_ENABLED=false
+          export TALIMGO_DATABASE_URL=postgresql+psycopg://talimgo:not-a-real-password@127.0.0.1:5432/talimgo
+          python scripts/check_production_config.py
+          if TALIMGO_DATABASE_URL=sqlite:///./ci-production-preflight.db \
+            python scripts/check_production_config.py; then
+            echo "the preflight must refuse a SQLite production database"; exit 1
+          fi
+
       - name: Tests (unit, API, learning invariants, local-AI policy)
         env:
           TALIMGO_ENV: test

@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type Dashboard, type Goal, type Me, type Plan, type Schedule } from "./lib/api";
+import {
+  api,
+  ApiError,
+  onUnauthorized,
+  type Dashboard,
+  type Goal,
+  type Me,
+  type Plan,
+  type Schedule,
+} from "./lib/api";
 import { direction, translator, type Locale, type StringKey } from "./lib/i18n";
 import { AuthPanel } from "./components/AuthPanel";
 import { DashboardPanel } from "./components/DashboardPanel";
@@ -55,16 +64,25 @@ export function App() {
   }, []);
 
   const refreshDashboard = useCallback(async () => {
-    const data = await api.get<Dashboard>("/api/dashboard");
-    setDashboard(data);
-    setGoal(data.goal);
-    // The dated schedule is a separate read; a learner without a plan yet simply has none.
     try {
-      setSchedule(await api.get<Schedule>("/api/plans/active/schedule"));
-    } catch {
-      setSchedule(null);
+      const data = await api.get<Dashboard>("/api/dashboard");
+      setDashboard(data);
+      setGoal(data.goal);
+      // The dated schedule is a separate read; a learner without a plan yet simply has none.
+      try {
+        setSchedule(await api.get<Schedule>("/api/plans/active/schedule"));
+      } catch {
+        setSchedule(null);
+      }
+      return data;
+    } catch (cause) {
+      // An expired session is handled once, by the `onUnauthorized` listener below; every other
+      // failure belongs in the banner rather than in an unhandled promise rejection.
+      if (!(cause instanceof ApiError && cause.status === 401)) {
+        setError(cause instanceof Error ? cause.message : "Unexpected error");
+      }
+      return null;
     }
-    return data;
   }, []);
 
   useEffect(() => {
@@ -89,6 +107,24 @@ export function App() {
       }
     })();
   }, [applyMe, refreshDashboard]);
+
+  // Session expiry mid-use: the API answers 401 to a request the learner made while signed in. Return
+  // to the sign-in screen with an explanation instead of leaving a screen whose actions all fail. The
+  // listener only exists while a learner is signed in, so a 401 from the sign-in form (wrong password)
+  // is never mistaken for an expired session.
+  useEffect(() => {
+    if (!me) return;
+    return onUnauthorized(() => {
+      setMe(null);
+      setDashboard(null);
+      setPlan(null);
+      setGoal(null);
+      setSchedule(null);
+      setPracticeTarget(null);
+      setView("dashboard");
+      setError(t("auth.sessionExpired"));
+    });
+  }, [me, t]);
 
   async function signOut() {
     await api.post("/api/auth/logout");
@@ -133,6 +169,8 @@ export function App() {
         <AuthPanel
           t={t}
           onAuthenticated={(next) => {
+            // A message left over from an expired session must not survive a fresh sign-in.
+            setError(null);
             applyMe(next);
             void refreshDashboard();
           }}
