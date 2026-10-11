@@ -18,14 +18,13 @@ runtime (see /api/health/ai and docs/LOCAL_AI_ARCHITECTURE.md) or about browser 
 from __future__ import annotations
 
 import argparse
+import secrets
 import sys
 import urllib.parse
 from uuid import uuid4
 
 import httpx
 
-# Deliberately disclosed and single-use: the account it belongs to is deleted by this run.
-DISPOSABLE_PASSWORD = "deploy-verification-password-1"
 REQUIRED_DOCUMENT_HEADERS = (
     "x-content-type-options",
     "referrer-policy",
@@ -87,6 +86,69 @@ def check_redirect(
     )
 
 
+def delete_disposable_account(
+    results: Results,
+    client: httpx.Client,
+    email: str,
+    password: str,
+    *,
+    session_available: bool,
+) -> bool:
+    """Delete the disposable account, recovering its session with the one-run credential if needed."""
+    deleted = False
+    details: list[str] = []
+
+    if session_available:
+        try:
+            response = client.post(
+                "/api/me/delete",
+                json={"password": password, "confirmation": "DELETE"},
+            )
+            deleted = response.status_code == 204
+            if not deleted:
+                details.append(f"delete with existing session returned {response.status_code}")
+        except Exception as exc:
+            details.append(f"delete with existing session raised {exc.__class__.__name__}")
+
+    if not deleted:
+        # Registration can commit server-side even if its HTTP response is lost. The email and
+        # password are unique to this run, so try to recover that account without logging secrets.
+        try:
+            login = client.post("/api/auth/login", json={"email": email, "password": password})
+            if login.status_code == 200:
+                try:
+                    response = client.post(
+                        "/api/me/delete",
+                        json={"password": password, "confirmation": "DELETE"},
+                    )
+                    deleted = response.status_code == 204
+                    if not deleted:
+                        details.append(f"delete after login returned {response.status_code}")
+                except Exception as exc:
+                    details.append(f"delete after login raised {exc.__class__.__name__}")
+            else:
+                details.append(f"cleanup login returned {login.status_code}")
+        except Exception as exc:
+            details.append(f"cleanup login raised {exc.__class__.__name__}")
+
+    results.record(
+        "disposable account deleted",
+        deleted,
+        "; ".join(details) if details else ("deleted" if deleted else "cleanup could not be confirmed"),
+    )
+
+    try:
+        after = client.get("/api/auth/me")
+        results.record(
+            "deleted session is refused",
+            deleted and after.status_code == 401,
+            f"{after.status_code}",
+        )
+    except Exception as exc:
+        results.record("deleted session refusal check completed", False, exc.__class__.__name__)
+    return deleted
+
+
 def run_api_checks(results: Results, client: httpx.Client) -> str | None:
     """Drive the real API through the edge with one disposable account. Returns the email used."""
     health = client.get("/api/health")
@@ -106,21 +168,38 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
     )
 
     email = f"deploy-verification-{uuid4().hex[:12]}@example.com"
-    registered = client.post(
-        "/api/auth/register",
-        json={
-            "email": email,
-            "password": DISPOSABLE_PASSWORD,
-            "display_name": "Deploy verification",
-            "accept_terms": True,
-            "accept_ai_processing": False,
-        },
-    )
+    password = secrets.token_urlsafe(32)
+    try:
+        registered = client.post(
+            "/api/auth/register",
+            json={
+                "email": email,
+                "password": password,
+                "display_name": "Deploy verification",
+                "accept_terms": True,
+                "accept_ai_processing": False,
+            },
+        )
+    except Exception as exc:
+        results.record("disposable account created", False, f"registration raised {exc.__class__.__name__}")
+        deleted = delete_disposable_account(
+            results, client, email, password, session_available=False
+        )
+        return None if deleted else email
+
     if not results.record(
         "disposable account created", registered.status_code == 201, f"{registered.status_code}"
     ):
+        # A 5xx can happen after a transaction commits, so attempt recovery instead of assuming that
+        # the account does not exist. A 4xx is a deterministic refusal and creates no account.
+        if registered.status_code >= 500:
+            deleted = delete_disposable_account(
+                results, client, email, password, session_available=False
+            )
+            return None if deleted else email
         return None
 
+    account_deleted = False
     try:
         session = client.get("/api/auth/me")
         results.record(
@@ -156,21 +235,10 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
         results.record("post-registration API checks completed", False, exc.__class__.__name__)
     finally:
         # Always attempt cleanup, including after network or response-decoding failures.
-        try:
-            removed = client.post(
-                "/api/me/delete",
-                json={"password": DISPOSABLE_PASSWORD, "confirmation": "DELETE"},
-            )
-            results.record("disposable account deleted", removed.status_code == 204, f"{removed.status_code}")
-        except Exception as exc:
-            results.record("disposable account deletion request completed", False, exc.__class__.__name__)
-
-        try:
-            after = client.get("/api/auth/me")
-            results.record("deleted session is refused", after.status_code == 401, f"{after.status_code}")
-        except Exception as exc:
-            results.record("deleted session refusal check completed", False, exc.__class__.__name__)
-    return email
+        account_deleted = delete_disposable_account(
+            results, client, email, password, session_available=True
+        )
+    return None if account_deleted else email
 
 
 def main(argv: list[str] | None = None) -> None:

@@ -176,3 +176,107 @@ def test_manual_workflow_inputs_are_passed_through_environment() -> None:
     assert '--host "$TALIMGO_VERIFY_HOST"' in command
     assert "${{ inputs.base_url }}" not in command
     assert "${{ inputs.host }}" not in command
+
+
+def test_verifier_uses_a_fresh_per_run_password_for_registration_and_cleanup(monkeypatch) -> None:
+    """The same unpredictable, per-run password is used only for creating and deleting the account."""
+    generated: list[int] = []
+    registered_passwords: list[str] = []
+    deletion_passwords: list[str] = []
+    email = "deploy-verification-unique@example.com"
+    me_calls = 0
+
+    def generate_password(length: int) -> str:
+        generated.append(length)
+        return "fresh-per-run-test-password-with-enough-entropy"
+
+    monkeypatch.setattr(verify_deployment.secrets, "token_urlsafe", generate_password)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal me_calls
+        if request.url.path == "/api/health":
+            return httpx.Response(
+                200,
+                json={"status": "ok"},
+                headers={
+                    "strict-transport-security": "max-age=31536000",
+                    "x-content-type-options": "nosniff",
+                    "referrer-policy": "no-referrer",
+                    "x-frame-options": "DENY",
+                },
+            )
+        if request.url.path == "/api/docs":
+            return httpx.Response(404)
+        if request.url.path == "/api/auth/register":
+            payload = request.read().decode()
+            import json
+
+            registered_passwords.append(json.loads(payload)["password"])
+            return httpx.Response(201, json={"id": "user"})
+        if request.url.path == "/api/auth/me":
+            me_calls += 1
+            if me_calls == 1:
+                return httpx.Response(200, json={"user": {"email": email}})
+            return httpx.Response(401)
+        if request.url.path == "/api/curriculum/paths":
+            return httpx.Response(200, json=[{"id": "python-foundations"}])
+        if request.url.path == "/api/goals" and request.method == "POST":
+            return httpx.Response(201, json={"id": "goal-1"})
+        if request.url.path == "/api/goals":
+            return httpx.Response(200, json=[{"id": "goal-1"}])
+        if request.url.path == "/api/me/delete":
+            import json
+
+            deletion_passwords.append(json.loads(request.read().decode())["password"])
+            return httpx.Response(204)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    results = verify_deployment.Results()
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://talimgo.example") as client:
+        result_email = verify_deployment.run_api_checks(results, client)
+
+    assert generated == [32]
+    assert registered_passwords == ["fresh-per-run-test-password-with-enough-entropy"]
+    assert deletion_passwords == registered_passwords
+    assert result_email is None
+    assert results.failures == 0
+
+
+def test_verifier_recovers_account_when_registration_response_is_lost(results) -> None:
+    """If the server creates the account but the response is lost, login recovers and deletes it."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path == "/api/health":
+            return httpx.Response(
+                200,
+                json={"status": "ok"},
+                headers={
+                    "strict-transport-security": "max-age=31536000",
+                    "x-content-type-options": "nosniff",
+                    "referrer-policy": "no-referrer",
+                    "x-frame-options": "DENY",
+                },
+            )
+        if request.url.path == "/api/docs":
+            return httpx.Response(404)
+        if request.url.path == "/api/auth/register":
+            raise httpx.ConnectError("server committed but response was lost", request=request)
+        if request.url.path == "/api/auth/login":
+            return httpx.Response(200, json={"user": {"email": "disposable"}})
+        if request.url.path == "/api/me/delete":
+            return httpx.Response(204)
+        if request.url.path == "/api/auth/me":
+            return httpx.Response(401)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    results = verify_deployment.Results()
+    with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://talimgo.example") as client:
+        email = verify_deployment.run_api_checks(results, client)
+
+    assert email is None
+    assert results.failures == 1  # registration's missing response remains a failed verification
+    assert calls.count("/api/auth/login") == 1
+    assert calls.count("/api/me/delete") == 1
+    assert calls[-1] == "/api/auth/me"
