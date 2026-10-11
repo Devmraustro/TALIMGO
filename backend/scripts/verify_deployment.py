@@ -182,9 +182,7 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
         )
     except Exception as exc:
         results.record("disposable account created", False, f"registration raised {exc.__class__.__name__}")
-        deleted = delete_disposable_account(
-            results, client, email, password, session_available=False
-        )
+        deleted = delete_disposable_account(results, client, email, password, session_available=False)
         return None if deleted else email
 
     if not results.record(
@@ -193,9 +191,7 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
         # A 5xx can happen after a transaction commits, so attempt recovery instead of assuming that
         # the account does not exist. A 4xx is a deterministic refusal and creates no account.
         if registered.status_code >= 500:
-            deleted = delete_disposable_account(
-                results, client, email, password, session_available=False
-            )
+            deleted = delete_disposable_account(results, client, email, password, session_available=False)
             return None if deleted else email
         return None
 
@@ -235,9 +231,7 @@ def run_api_checks(results: Results, client: httpx.Client) -> str | None:
         results.record("post-registration API checks completed", False, exc.__class__.__name__)
     finally:
         # Always attempt cleanup, including after network or response-decoding failures.
-        account_deleted = delete_disposable_account(
-            results, client, email, password, session_available=True
-        )
+        account_deleted = delete_disposable_account(results, client, email, password, session_available=True)
     return None if account_deleted else email
 
 
