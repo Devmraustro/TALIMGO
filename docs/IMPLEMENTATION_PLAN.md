@@ -315,3 +315,95 @@ not demonstrate that curriculum loading, roadmap generation, diagnostics or the 
 correctly with two or more paths. That remains work for when a second path is authored.
 
 Full suite after the change: **225 passed, 1 skipped**.
+
+### 7.4 Locale: educational content, not just chrome
+
+**Gap.** The profile has supported `ar` since the first slice, but the API returned English content:
+`objective_public`/`lesson_public`/`item_public` were called without a locale, both feedback paths
+asked the serialiser for `"en"` explicitly, plan themes were generated with an empty `theme_ar`, and
+every dashboard sentence the server composes (next action, evidence basis, blockers) was English-only.
+An Arabic learner therefore read Arabic navigation around English lessons, questions, explanations and
+rationales.
+
+**Fix.** One documented rule, applied at the API boundary: *authenticated routes use the learner's
+saved locale; public routes use `?locale=` then `Accept-Language` then English; a missing translation
+falls back to English, never to an empty string.*
+
+* `app/i18n.py` (new): locale normalisation (`ar-DZ` → `ar`), `Accept-Language` parsing with q-weights,
+  `request_locale()`, and the server-side phrase table (EN/AR) for every sentence the backend writes —
+  next-action titles, rationales, evidence explanations, blockers, and the placement note and rule.
+* `app/deps.py`: `CurrentLocale` (authenticated) and `ContentLocale` (public, profile-aware when
+  signed in) dependencies.
+* Routers `curriculum`, `diagnostic`, `practice`, `plans`, `dashboard` pass the resolved locale to the
+  serialisers and to the services; `assessment.answer_diagnostic`/`answer_practice` take a `locale` and
+  localise feedback explanations and objective titles; the placement payload carries both the rendered
+  sentence and a `rule_code`, so one stored placement can be shown in either language.
+* `plans.generate_roadmap` now writes a real Arabic week theme (per-objective title fallback to
+  English); `PathSummary` gained locale-resolved `title`/`summary` alongside the `_en`/`_ar` pairs.
+* `progress.build_dashboard` localises the chosen next action through its `reason_code` (added to
+  `NextAction`, which stays pure and translation-free) and composes the evidence basis in the
+  learner's language.
+
+**Evidence.** `backend/tests/test_localisation.py` (13 tests) asserts *actual returned values*, not
+`dir="rtl"`: lesson title **and body**, every objective title and summary, public path summaries via
+`?locale=ar` and via `Accept-Language`, diagnostic prompts and feedback explanation + objective title,
+practice prompts and feedback, plan week themes, objective titles and rationales (generated, active and
+by-id), the dashboard next action in both locales, an English learner still receiving English, the
+documented fallback on a synthetic objective/lesson with empty `ar` columns, tutor grounding in Arabic
+with language-independent citation ids, and answer keys still absent from item payloads in both
+locales. Live walk (dev stack, Arabic profile): lesson, diagnostic prompt, placement note, plan theme,
+rationale, dashboard action and public path titles all Arabic, while the reasoning above shows the
+English path unchanged. The frontend already renders Arabic chrome and RTL from the profile locale; a
+locale switcher in the interface is still missing (see the gaps list at the end of this section).
+
+### 7.5 The study schedule: dated work, today's missions, and re-planning
+
+**Gap.** The roadmap was an ordered list with no dates. A learner could not see what to do *today*,
+could not tell whether they were behind, and days they missed simply disappeared: `PlanItem` had no
+day, no completion timestamp, and nothing derived a calendar from the weekly budget or the learner's
+available days.
+
+**Fix.** A pure scheduler plus dates derived, never duplicated:
+
+* `app/learning/schedule.py` (new, pure): `build_schedule()` places items in plan order into days of at
+  most `daily_budget()` minutes (derived from the weekly budget and availability, clamped 15–180),
+  never splits an item across days, only uses available weekdays (offset → weekday via the plan's start
+  weekday), never schedules before `earliest_day` (so re-planning cannot place work in the past), and
+  is deterministic — same inputs, same dates. `adherence()` classifies every item as on time, late,
+  overdue or pending from `scheduled_day` + `completed_at`, and `due_today()` returns today's work
+  followed by the oldest slips.
+* Model/migration `9b2e4f6a8c10`: `Plan.starts_on`, `PlanItem.scheduled_day`, `PlanItem.completed_at`.
+  Dates are derived (`starts_on + scheduled_day`) rather than stored per item, which is what makes
+  re-planning a recomputation instead of a rewrite.
+* `generate_roadmap()` computes the schedule at publication time; the practice-completion path records
+  `completed_at` so adherence means something.
+* API: `GET /api/plans/active/schedule` (weeks with dates, `today`, adherence counts, planned vs
+  **actual** recorded minutes) and `POST /api/plans/active/reschedule` (re-place unfinished work from
+  today; completed work keeps its date and is never touched; audited in `audit_log`; idempotent when
+  nothing changed).
+* Interface: a *Today's missions* card on the dashboard with a start button per item and an explicit
+  count of slipped work rather than a streak or a scolding, plus per-item planned dates, adherence and
+  re-planning in the roadmap view (EN/AR strings, RTL-safe markup).
+
+**Evidence.** `backend/tests/test_schedule.py` (14 tests): the nine pure scheduler/adherence
+properties and five API tests covering dates on the plan, availability respected in the dates (every
+scheduled date falls on a chosen weekday), today's missions moving on after a completed item,
+re-planning that leaves completed work and is idempotent, and a deliberately aged plan reporting
+overdue work and offering it today. Frontend `src/components/TodayPanel.test.tsx` (5 tests).
+Live walk: the Arabic learner's plan is scheduled at 70 minutes/day from 2026-10-11, completing one
+mission flips adherence to `on_time: 1`, a re-plan moves 4 unfinished items and leaves the completed
+one alone, and the recorded actual minutes come from the sessions themselves.
+
+### 7.6 What this sprint did **not** do (honest gaps)
+
+* Localisation: no interface language switcher yet (the profile can be changed through the API and the
+  UI then follows); `tutor.reply` text depends on the local model honouring the prompt's language —
+  unverifiable here (no runtime) and therefore unclaimed.
+* Learning economy: no onboarding wizard beyond the existing profile fields, no lesson player with
+  typed steps, no collaboration, no mobile app work (the interface is responsive and keyboard
+  usable, but no device testing has been performed).
+* Content: no automated curriculum import/migration path and no authoring review queue; the authored
+  curriculum is still the single `python-foundations` path, so none of this sprint's work can be
+  described as validated for multi-path or large-course operation.
+* Security and performance: no formal penetration test, no load test, and no review by a human
+  other than the automated gates listed below.

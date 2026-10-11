@@ -11,12 +11,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session as DbSession
 
 from app.config import Settings, get_settings
 from app.db import get_db
-from app.models import Session, User
+from app.i18n import normalise_locale, request_locale
+from app.models import Profile, Session, User
 from app.security import hash_session_token, session_is_active
 from app.utils import ensure_aware, utcnow
 
@@ -75,10 +76,40 @@ def get_admin_user(
     return user
 
 
+def get_current_locale(
+    user: Annotated[User, Depends(get_current_user)],
+    db: Annotated[DbSession, Depends(get_db)],
+) -> str:
+    """The learner's saved locale, defaulting to English for unknown values."""
+    profile = db.get(Profile, user.id)
+    return normalise_locale(profile.locale if profile is not None else None) or "en"
+
+
+def get_content_locale(
+    db: Annotated[DbSession, Depends(get_db)],
+    user: Annotated[User | None, Depends(get_optional_user)],
+    locale: Annotated[str | None, Query()] = None,
+    accept_language: Annotated[str | None, Header()] = None,
+) -> str:
+    """Locale for content routes that are readable without a session.
+
+    A signed-in learner's saved locale wins (Arabic must not require a query parameter); otherwise
+    the request's ``?locale=`` then ``Accept-Language`` are used, then English.
+    """
+    if user is not None:
+        profile = db.get(Profile, user.id)
+        saved = normalise_locale(profile.locale if profile is not None else None)
+        if saved is not None:
+            return saved
+    return request_locale(locale, accept_language)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(get_admin_user)]
 Db = Annotated[DbSession, Depends(get_db)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
+CurrentLocale = Annotated[str, Depends(get_current_locale)]
+ContentLocale = Annotated[str, Depends(get_content_locale)]
 
 
 def session_expiry(settings: Settings) -> datetime:

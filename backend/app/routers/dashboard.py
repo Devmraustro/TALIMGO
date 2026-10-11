@@ -6,7 +6,7 @@ from dataclasses import asdict
 
 from fastapi import APIRouter
 
-from app.deps import CurrentUser, Db
+from app.deps import CurrentLocale, CurrentUser, Db
 from app.schemas import DashboardOut, GoalOut, NextActionOut
 from app.services.progress import build_dashboard
 
@@ -14,8 +14,8 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("", response_model=DashboardOut)
-def dashboard(user: CurrentUser, db: Db) -> DashboardOut:
-    data = build_dashboard(db, user)
+def dashboard(user: CurrentUser, db: Db, locale: CurrentLocale) -> DashboardOut:
+    data = build_dashboard(db, user, locale=locale)
     payload = dict(data)
     if payload.get("goal") is not None:
         payload["goal"] = GoalOut.model_validate(payload["goal"])

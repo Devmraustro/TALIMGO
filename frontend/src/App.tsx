@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type Dashboard, type Goal, type Me, type Plan } from "./lib/api";
+import { api, ApiError, type Dashboard, type Goal, type Me, type Plan, type Schedule } from "./lib/api";
 import { direction, translator, type Locale, type StringKey } from "./lib/i18n";
 import { AuthPanel } from "./components/AuthPanel";
 import { DashboardPanel } from "./components/DashboardPanel";
@@ -9,6 +9,7 @@ import { PracticePanel } from "./components/PracticePanel";
 import { ProgressPanel } from "./components/ProgressPanel";
 import { RoadmapPanel } from "./components/RoadmapPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { TodayPanel } from "./components/TodayPanel";
 
 type View = "dashboard" | "plan" | "practice" | "progress" | "settings";
 
@@ -28,6 +29,10 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [practiceTarget, setPracticeTarget] = useState<{ objectiveId: string; lessonId: string | null } | null>(
+    null,
+  );
   const [goal, setGoal] = useState<Goal | null>(null);
   const [view, setView] = useState<View>("dashboard");
   const [aiStatus, setAiStatus] = useState<AiStatus>({ ai_enabled: false });
@@ -53,6 +58,12 @@ export function App() {
     const data = await api.get<Dashboard>("/api/dashboard");
     setDashboard(data);
     setGoal(data.goal);
+    // The dated schedule is a separate read; a learner without a plan yet simply has none.
+    try {
+      setSchedule(await api.get<Schedule>("/api/plans/active/schedule"));
+    } catch {
+      setSchedule(null);
+    }
     return data;
   }, []);
 
@@ -92,6 +103,9 @@ export function App() {
     const action = dashboard?.next_action;
     if (!action) return;
     // The diagnostic runs inline on the dashboard; everything else is practice-shaped.
+    setPracticeTarget(
+      action.objective_id ? { objectiveId: action.objective_id, lessonId: action.lesson_id } : null,
+    );
     setView(action.kind === "diagnostic" ? "dashboard" : "practice");
   }
 
@@ -204,6 +218,17 @@ export function App() {
               />
             )
           )}
+          {!needsDiagnostic ? (
+            <TodayPanel
+              t={t}
+              schedule={schedule}
+              busy={busy}
+              onStart={(item) => {
+                setPracticeTarget({ objectiveId: item.objective_id, lessonId: item.lesson_id });
+                setView("practice");
+              }}
+            />
+          ) : null}
           {dashboard?.next_action.kind === "idle" && !needsDiagnostic ? (
             <RoadmapPanel
               t={t}
@@ -225,8 +250,8 @@ export function App() {
       {view === "practice" && !needsGoal ? (
         <PracticePanel
           t={t}
-          objectiveId={dashboard?.next_action.objective_id ?? null}
-          lessonId={dashboard?.next_action.lesson_id ?? null}
+          objectiveId={practiceTarget?.objectiveId ?? dashboard?.next_action.objective_id ?? null}
+          lessonId={practiceTarget?.lessonId ?? dashboard?.next_action.lesson_id ?? null}
           aiAvailable={Boolean(aiStatus.ai_enabled && aiStatus.runtime_reachable !== false)}
           onFinished={() => {
             setBusy(true);

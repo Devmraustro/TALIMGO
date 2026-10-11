@@ -44,6 +44,9 @@ class NextAction:
     objective_id: str | None = None
     lesson_id: str | None = None
     plan_item_id: str | None = None
+    # A stable code for *why* this action was chosen, so the API can render it in the learner's
+    # locale without the engine owning translations (see app/i18n.py).
+    reason_code: str = "unknown"
 
 
 def choose_next_action(
@@ -58,6 +61,7 @@ def choose_next_action(
 ) -> NextAction:
     if not has_goal:
         return NextAction(
+            reason_code="no_goal",
             kind="idle",
             title="Define your learning goal",
             rationale="TALIMGO plans from a goal: tell it what you want to be able to do.",
@@ -67,6 +71,7 @@ def choose_next_action(
 
     if not diagnostic_complete:
         return NextAction(
+            reason_code="diagnostic",
             kind="diagnostic",
             title="Take the starting check",
             rationale=(
@@ -79,6 +84,7 @@ def choose_next_action(
 
     if not plan_ready:
         return NextAction(
+            reason_code="generate_plan",
             kind="idle",
             title="Generate your roadmap",
             rationale="Your placement is recorded; the next step is a plan built from it.",
@@ -90,12 +96,19 @@ def choose_next_action(
 
     for item in ordered:
         if item.status == "in_progress":
-            return _from_plan_item(item, estimates, now, reason="This is the task you started.")
+            return _from_plan_item(
+                item,
+                estimates,
+                now,
+                reason="This is the task you started.",
+                reason_code="continue_item",
+            )
 
     for item in ordered:
         estimate = estimates.get(item.objective_id)
         if phase_for(estimate) == "retaining" and estimate is not None and needs_review(estimate, now):
             return NextAction(
+                reason_code="review_due",
                 kind="review",
                 title=f"Review: {item.objective_title}",
                 rationale="You confirmed this earlier and recall has faded — a short review keeps it.",
@@ -109,7 +122,11 @@ def choose_next_action(
     for item in ordered:
         if item.status == "pending":
             return _from_plan_item(
-                item, estimates, now, reason="It is the next unfinished step in your plan."
+                item,
+                estimates,
+                now,
+                reason="It is the next unfinished step in your plan.",
+                reason_code="next_step",
             )
 
     due_reviews = [
@@ -121,6 +138,7 @@ def choose_next_action(
         estimate, objective_id = sorted(due_reviews, key=lambda pair: pair[1])[0]
         title = titles.get(objective_id, objective_id)
         return NextAction(
+            reason_code="review_unplanned",
             kind="review",
             title=f"Review: {title}",
             rationale="Everything in your plan is done; this confirmed objective is due for review.",
@@ -130,6 +148,7 @@ def choose_next_action(
         )
 
     return NextAction(
+        reason_code="all_done",
         kind="idle",
         title="Your plan is complete",
         rationale=("Every planned step is finished. Measure again, or set a harder goal to continue."),
@@ -139,7 +158,12 @@ def choose_next_action(
 
 
 def _from_plan_item(
-    item: PlannedItem, estimates: dict[str, KnowledgeEstimate], now: datetime, *, reason: str
+    item: PlannedItem,
+    estimates: dict[str, KnowledgeEstimate],
+    now: datetime,
+    *,
+    reason: str,
+    reason_code: str,
 ) -> NextAction:
     estimate = estimates.get(item.objective_id)
     state = phase_for(estimate)
@@ -157,6 +181,7 @@ def _from_plan_item(
             basis += f" Current estimated recall: {round(value * 100)}%."
 
     return NextAction(
+        reason_code=reason_code,
         kind=kind,
         title=item.objective_title,
         rationale=reason,

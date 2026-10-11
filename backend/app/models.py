@@ -235,6 +235,9 @@ class Plan(Base):
     generator: Mapped[str] = mapped_column(String(40), default="deterministic-v1")
     total_estimated_minutes: Mapped[int] = mapped_column(Integer, default=0)
     validation_report: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # The calendar anchor for the schedule. Dates are derived (starts_on + scheduled_day) rather than
+    # stored per item, so re-planning after missed days is a pure recomputation (app/learning/schedule).
+    starts_on: Mapped[date] = mapped_column(Date, default=date.today)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -262,6 +265,9 @@ class PlanItem(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending")
     rationale_en: Mapped[str] = mapped_column(Text, default="")
     rationale_ar: Mapped[str] = mapped_column(Text, default="")
+    # Days after the plan's starts_on. NULL only for plans created before the schedule existed.
+    scheduled_day: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PracticeSession(Base):

@@ -116,6 +116,10 @@ class MeOut(BaseModel):
 
 class PathSummary(BaseModel):
     id: str
+    # `title`/`summary` are resolved for the requesting locale; the _en/_ar pairs are kept for
+    # clients that switch language client-side.
+    title: str = ""
+    summary: str = ""
     title_en: str
     title_ar: str
     summary_en: str

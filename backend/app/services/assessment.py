@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.curriculum.registry import localised
+from app.i18n import DEFAULT_LOCALE, translate
 from app.learning.grading import grade
 from app.learning.types import GradeResult
 from app.models import (
@@ -154,6 +155,7 @@ def answer_diagnostic(
     response: dict,
     confidence: str = "unsure",
     now: datetime | None = None,
+    locale: str = "en",
 ) -> dict:
     if attempt.status != "in_progress":
         raise AssessmentError("This diagnostic has already been completed.")
@@ -223,10 +225,16 @@ def answer_diagnostic(
         "explanation": localised(
             {"explanation_en": item.explanation_en, "explanation_ar": item.explanation_ar},
             "explanation",
-            "en",
+            locale,
         ),
         "objective_id": item.objective_id,
-        "objective_title": objective.title_en if objective else item.objective_id,
+        "objective_title": localised(
+            {"title_en": objective.title_en, "title_ar": objective.title_ar},
+            "title",
+            locale,
+        )
+        if objective
+        else item.objective_id,
     }
 
     upcoming = next_diagnostic_item(db, attempt, path_id)
@@ -234,7 +242,7 @@ def answer_diagnostic(
     if completed:
         attempt.status = "completed"
         attempt.completed_at = moment
-        attempt.placement = _placement(db, attempt)
+        attempt.placement = _placement(db, attempt, locale)
     db.flush()
 
     return {"feedback": feedback, "completed": completed, "placement": attempt.placement}
@@ -294,7 +302,7 @@ def aggregate_placement(responses: Sequence[tuple[str, bool, int]]) -> dict[str,
     return per_objective
 
 
-def _placement(db: DbSession, attempt: DiagnosticAttempt) -> dict:
+def _placement(db: DbSession, attempt: DiagnosticAttempt, locale: str = DEFAULT_LOCALE) -> dict:
     responses = list(
         db.scalars(
             select(DiagnosticResponse)
@@ -316,11 +324,9 @@ def _placement(db: DbSession, attempt: DiagnosticAttempt) -> dict:
     return {
         "objectives": per_objective,
         "summary": summary,
-        "rule": PLACEMENT_RULE,
-        "note": (
-            "Placement is provisional: it reflects one short check and will be revised by your "
-            "practice evidence."
-        ),
+        "rule": translate("placement.rule", locale),
+        "rule_code": "placement.rule",
+        "note": translate("placement.note", locale),
     }
 
 
@@ -481,6 +487,7 @@ def answer_practice(
     response: dict,
     used_hint: bool = False,
     now: datetime | None = None,
+    locale: str = "en",
 ) -> dict:
     if session.status != "in_progress":
         raise AssessmentConflict("This practice session is already finished; start a new one.")
@@ -535,10 +542,16 @@ def answer_practice(
         "explanation": localised(
             {"explanation_en": item.explanation_en, "explanation_ar": item.explanation_ar},
             "explanation",
-            "en",
+            locale,
         ),
         "objective_id": item.objective_id,
-        "objective_title": objective.title_en if objective else item.objective_id,
+        "objective_title": localised(
+            {"title_en": objective.title_en, "title_ar": objective.title_ar},
+            "title",
+            locale,
+        )
+        if objective
+        else item.objective_id,
     }
 
     db.flush()

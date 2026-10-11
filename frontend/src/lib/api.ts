@@ -197,6 +197,39 @@ export interface Plan {
   weeks: PlanWeek[];
 }
 
+export interface ScheduleItem {
+  id: string;
+  order_index: number;
+  objective_id: string;
+  objective_title: string;
+  kind: "learn" | "practice" | "assess" | "review" | "build";
+  lesson_id: string | null;
+  est_minutes: number;
+  status: string;
+  scheduled_day: number;
+  scheduled_for: string;
+  completed_at: string | null;
+  rationale: string;
+}
+
+export interface Schedule {
+  plan_id: string;
+  version: number;
+  starts_on: string;
+  daily_minutes: number;
+  total_estimated_minutes: number;
+  weeks: { week_number: number; theme: string; items: ScheduleItem[] }[];
+  today: { date: string; items: ScheduleItem[]; minutes_planned: number };
+  adherence: {
+    counts: { on_time: number; late: number; overdue: number; pending: number };
+    minutes: { on_time: number; late: number; overdue: number; actual?: number };
+    total_items: number;
+    completed_items: number;
+    adherence_percent: number;
+    behind_schedule: boolean;
+  };
+}
+
 export interface NextAction {
   kind: "learn" | "practice" | "assess" | "review" | "build" | "diagnostic" | "idle";
   title: string;

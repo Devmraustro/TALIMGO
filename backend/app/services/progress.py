@@ -12,8 +12,9 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
+from app.i18n import translate
 from app.learning import mastery
-from app.learning.selection import PlannedItem, choose_next_action
+from app.learning.selection import NextAction, PlannedItem, choose_next_action
 from app.learning.types import EvidenceRecord, KnowledgeEstimate
 from app.models import (
     Evidence,
@@ -162,11 +163,20 @@ def active_goal(db: DbSession, user_id: str) -> Goal | None:
     )
 
 
-def planned_items(db: DbSession, plan: Plan | None) -> list[PlannedItem]:
+def objective_title(objective: Objective | None, locale: str, fallback: str = "") -> str:
+    """Objective title in the learner's locale, falling back to English then to the id."""
+    if objective is None:
+        return fallback
+    if locale == "ar" and objective.title_ar.strip():
+        return objective.title_ar
+    return objective.title_en or fallback
+
+
+def planned_items(db: DbSession, plan: Plan | None, locale: str = "en") -> list[PlannedItem]:
     if plan is None:
         return []
     rows = db.execute(
-        select(PlanItem, PlanWeek.week_number, Objective.title_en)
+        select(PlanItem, PlanWeek.week_number, Objective)
         .join(PlanWeek, PlanItem.week_id == PlanWeek.id)
         .join(Objective, PlanItem.objective_id == Objective.id)
         .where(PlanItem.plan_id == plan.id)
@@ -176,7 +186,7 @@ def planned_items(db: DbSession, plan: Plan | None) -> list[PlannedItem]:
         PlannedItem(
             id=item.id,
             objective_id=item.objective_id,
-            objective_title=title,
+            objective_title=objective_title(objective, locale, item.objective_id),
             kind=item.kind,
             est_minutes=item.est_minutes,
             status=item.status,
@@ -184,7 +194,7 @@ def planned_items(db: DbSession, plan: Plan | None) -> list[PlannedItem]:
             order_index=item.order_index,
             lesson_id=item.lesson_id,
         )
-        for item, week_number, title in rows
+        for item, week_number, objective in rows
     ]
 
 
@@ -195,15 +205,71 @@ def latest_plan(db: DbSession, user_id: str, goal_id: str | None = None) -> Plan
     return db.scalar(query.order_by(Plan.created_at.desc()).limit(1))
 
 
-def build_dashboard(db: DbSession, user: User, *, now: datetime | None = None) -> dict:
+def _evidence_basis(estimate: KnowledgeEstimate | None, locale: str, title: str, now: datetime) -> str:
+    """The evidence behind an estimate, composed in the learner's locale.
+
+    Mirrors ``app.learning.mastery.explain`` sentence-for-sentence so the English text a learner
+    sees is the same as before, while Arabic gets its own template rather than a translation miss.
+    """
+    if estimate is None:
+        return translate("evidence.none", locale)
+    if estimate.phase == "acquiring":
+        if estimate.unassisted_successes == 0:
+            return translate("evidence.no_unassisted", locale, title=title)
+        missing: list[str] = []
+        if estimate.unassisted_successes < mastery.PROMOTION_UNASSISTED_SUCCESSES:
+            missing.append(
+                translate(
+                    "evidence.missing_successes",
+                    locale,
+                    n=mastery.PROMOTION_UNASSISTED_SUCCESSES - estimate.unassisted_successes,
+                )
+            )
+        if not estimate.has_delayed_success:
+            missing.append(translate("evidence.missing_delayed", locale))
+        joiner = " و" if locale == "ar" else " and "
+        return translate("evidence.acquiring", locale, title=title, missing=joiner.join(missing))
+    value = mastery.retrievability(estimate, now)
+    percent = round((value or 0.0) * 100)
+    below = (value or 0.0) < mastery.RETRIEVABILITY_TARGET
+    key = "evidence.retaining_below" if below else "evidence.retaining_ok"
+    return translate(key, locale, title=title, n=estimate.unassisted_successes, percent=percent)
+
+
+def localise_next_action(
+    action: NextAction, locale: str, *, estimate: KnowledgeEstimate | None, now: datetime
+) -> NextAction:
+    """Render the chosen action's sentences in ``locale`` using its stable reason code."""
+    from dataclasses import replace
+
+    code = action.reason_code
+    title = action.title
+    if code in {"no_goal", "diagnostic", "generate_plan", "all_done"}:
+        title = translate(f"action.{code}.title", locale)
+    elif code in {"review_due", "review_unplanned"}:
+        title = translate("action.review.title", locale, title=action.title.removeprefix("Review: "))
+
+    if code == "all_done":
+        rationale = translate("action.all_done.rationale", locale)
+    else:
+        rationale = translate(f"action.{code}.rationale", locale)
+
+    basis = _evidence_basis(estimate, locale, action.title, now)
+    return replace(action, title=title, rationale=rationale, evidence_basis=basis)
+
+
+def build_dashboard(db: DbSession, user: User, *, now: datetime | None = None, locale: str = "en") -> dict:
     moment = now or utcnow()
     profile = db.get(Profile, user.id)
     goal = active_goal(db, user.id)
     estimates = load_estimates(db, user.id)
     plan = latest_plan(db, user.id, goal.id if goal else None)
-    items = planned_items(db, plan)
+    items = planned_items(db, plan, locale)
 
-    titles = {objective.id: objective.title_en for objective in db.scalars(select(Objective)).all()}
+    objectives = {objective.id: objective for objective in db.scalars(select(Objective)).all()}
+    titles = {
+        objective_id: objective_title(row, locale, objective_id) for objective_id, row in objectives.items()
+    }
 
     from app.models import DiagnosticAttempt
 
@@ -225,12 +291,18 @@ def build_dashboard(db: DbSession, user: User, *, now: datetime | None = None) -
         titles=titles,
         plan_ready=plan is not None,
     )
+    action = localise_next_action(
+        action,
+        locale,
+        estimate=estimates.get(action.objective_id) if action.objective_id else None,
+        now=moment,
+    )
 
     blockers: list[str] = []
     if plan is None and diagnostic_done:
-        blockers.append("No roadmap yet — generate one from your goal.")
+        blockers.append(translate("blocker.no_plan", locale))
     if profile is not None and profile.weekly_minutes < 60:
-        blockers.append("Your weekly time budget is under an hour; progress will be slow.")
+        blockers.append(translate("blocker.low_budget", locale))
 
     recent = db.scalars(
         select(Evidence).where(Evidence.user_id == user.id).order_by(Evidence.occurred_at.desc()).limit(8)
