@@ -62,7 +62,7 @@ def model_slot(*, limit: int, wait_seconds: float) -> Iterator[None]:
     global _MODEL_REQUESTS_IN_FLIGHT
     deadline = time.monotonic() + wait_seconds
     with _MODEL_CONDITION:
-        while _MODEL_REQUESTS_IN_FLIGHT >= limit:
+        while limit <= _MODEL_REQUESTS_IN_FLIGHT:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise AiBusyError(retry_after=max(1, int(wait_seconds) + 1))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -55,7 +55,7 @@ def test_fixed_window_rolls_over_without_per_window_rows(client) -> None:
         user_id = db.scalar(select(User.id).where(User.email == "write-window@example.com"))
     assert user_id
 
-    moment = datetime(2026, 10, 11, 0, 0, 30, tzinfo=timezone.utc)
+    moment = datetime(2026, 10, 11, 0, 0, 30, tzinfo=UTC)
     assert reserve_write_request_committed(user_id, limit=1, now=moment) == 1
     with pytest.raises(WriteRateLimitExceeded) as refused:
         reserve_write_request_committed(user_id, limit=1, now=moment + timedelta(seconds=10))

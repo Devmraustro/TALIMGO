@@ -25,9 +25,8 @@ def test_model_gate_rejects_when_the_only_slot_is_occupied() -> None:
     try:
         assert entered.wait(timeout=1.0), "worker never acquired the model slot"
         started = time.monotonic()
-        with pytest.raises(AiBusyError):
-            with model_slot(limit=1, wait_seconds=0.02):
-                pytest.fail("a second generation entered an occupied slot")
+        with pytest.raises(AiBusyError), model_slot(limit=1, wait_seconds=0.02):
+            pytest.fail("a second generation entered an occupied slot")
         assert time.monotonic() - started < 0.5, "the queue wait must remain bounded"
     finally:
         release.set()
@@ -39,9 +38,10 @@ def test_model_gate_rejects_when_the_only_slot_is_occupied() -> None:
 
 
 def test_model_gate_releases_after_generation_raises() -> None:
-    with pytest.raises(RuntimeError, match="synthetic runtime failure"):
-        with model_slot(limit=1, wait_seconds=0.02):
-            raise RuntimeError("synthetic runtime failure")
+    with pytest.raises(RuntimeError, match="synthetic runtime failure"), model_slot(
+        limit=1, wait_seconds=0.02
+    ):
+        raise RuntimeError("synthetic runtime failure")
     with model_slot(limit=1, wait_seconds=0.02):
         pass
 
