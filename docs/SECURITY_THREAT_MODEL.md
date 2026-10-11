@@ -97,7 +97,7 @@ is therefore deliberately small, and each header answers a named risk rather tha
 | `Permissions-Policy` | 23 features set to `()` | Silent use of camera, microphone, geolocation, USB, payment, etc. by injected or future code | The list is explicit; enabling a feature requires a product decision and a code change |
 | `Strict-Transport-Security` | `max-age=31536000` | Protocol downgrade and cookie theft on a later plain-HTTP request | **Only ever sent when the request arrived over HTTPS** (directly, or via `X-Forwarded-Proto` set by the proxy). `includeSubDomains`/`preload` are deliberately omitted — they need a domain inventory the owner has not provided |
 
-Verified by `backend/tests/test_http_hardening.py` (11 tests) and the tripwire in
+Verified by `backend/tests/test_http_hardening.py` (12 tests) and the tripwire in
 `tests/test_security_basics.py`: the baseline on success/error/preflight responses, frame-embedding
 blocked twice over, the unused-feature list, HSTS only over HTTPS (and tolerating the shapes a proxy
 sends), the docs policy staying separate from the API policy, and production serving no interactive

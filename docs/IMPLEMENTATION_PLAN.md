@@ -424,7 +424,7 @@ HSTS is never sent where a browser would ignore it. The development-only Swagger
 minimal policy (it needs a CDN bundle); production serves no interactive docs at all, which the tests
 assert rather than assume.
 
-**Evidence.** `backend/tests/test_http_hardening.py` (11 tests, all passing) plus the replacement of the
+**Evidence.** `backend/tests/test_http_hardening.py` (12 tests, all passing) plus the replacement of the
 old "header absent" test with a tripwire. The threat model's new section maps every header to the risk
 it addresses and states what is *not* covered.
 
@@ -480,7 +480,7 @@ full review — including what was found, what changed and what remains owned by
 
 ### 7.10 Export and deletion, verified end to end
 
-`tests/test_account_lifecycle.py` (6 tests) builds a learner with a real history — profile, consent,
+`tests/test_account_lifecycle.py` (8 tests) builds a learner with a real history — profile, consent,
 goal, completed diagnostic, generated plan, completed practice session and a tutor thread produced
 through the actual tutor path with a mocked local transport — then asserts the export contains each
 category and that deletion leaves zero rows in sixteen learner-owned tables while the curriculum is
@@ -575,7 +575,7 @@ identical in both languages, which is why nothing caught it. The label is now re
 an English fallback, while short-answer canonical values (`"15"`) and literal code tokens are returned
 unchanged — translating those would change what the learner is told is correct.
 
-**Evidence.** `tests/test_tutor_quota_durability.py` (11 tests) drives six genuine failure paths
+**Evidence.** `tests/test_tutor_quota_durability.py` (12 tests) drives six genuine failure paths
 through the real tutor API (unreachable runtime, HTTP 500 from the runtime including a
 credential-shaped body that must not leak, non-JSON output, empty completion, a citation outside the
 context, a prohibited claim). Each asserts the HTTP status, that no tutor exchange or thread was
