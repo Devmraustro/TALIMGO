@@ -2,6 +2,10 @@
 
 This deliberately refuses arbitrary database targets: it only operates on the CI source database
 named "talimgo" at loopback and a dedicated scratch database named "talimgo_restore".
+
+The dump lives in a temporary directory and the scratch database is dropped on the way out whether
+the rehearsal succeeded or failed. A failure to drop it is reported and makes the script fail without
+replacing the error that caused the run to fail in the first place.
 """
 
 from __future__ import annotations
@@ -21,6 +25,21 @@ EXPECTED_HOSTS = {"127.0.0.1", "localhost"}
 
 def run(args: list[str], env: dict[str, str]) -> None:
     subprocess.run(args, check=True, env=env)
+
+
+def run_cleanup(args: list[str], env: dict[str, str]) -> subprocess.CalledProcessError | None:
+    """Drop the scratch database, returning a failure instead of raising it.
+
+    Cleanup runs in a ``finally`` block. Raising here would replace the error that actually made the
+    rehearsal fail, sending whoever reads the output after the wrong problem, so the failure is
+    returned for the caller to report. Leftover state is still never silent: the caller exits
+    non-zero when the scratch database could not be removed.
+    """
+    try:
+        run(args, env)
+    except subprocess.CalledProcessError as exc:
+        return exc
+    return None
 
 
 def connection_args(url, database: str | None = None) -> list[str]:
@@ -81,6 +100,7 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="talimgo-pg-restore-") as temp_dir:
         dump_path = os.path.join(temp_dir, "talimgo.dump")
+        cleanup_error: subprocess.CalledProcessError | None = None
         try:
             run(
                 [
@@ -150,7 +170,20 @@ def main() -> None:
                 "and Alembic revision match, and restored API health/account/session/goal smoke passed."
             )
         finally:
-            run(["dropdb", "--if-exists", *source_args, RESTORE_DATABASE], env)
+            cleanup_error = run_cleanup(["dropdb", "--if-exists", *source_args, RESTORE_DATABASE], env)
+            if cleanup_error is not None:
+                # Printed, not raised: if the rehearsal already failed, that error is the useful one.
+                print(
+                    f"warning: the scratch database {RESTORE_DATABASE} could not be dropped "
+                    f"({cleanup_error.cmd[0]} exited {cleanup_error.returncode})",
+                    file=sys.stderr,
+                )
+
+    if cleanup_error is not None:
+        raise SystemExit(
+            f"Backup rehearsal finished but the scratch database {RESTORE_DATABASE} is still on the "
+            "server. Remove it before relying on the next run's results."
+        )
 
 
 if __name__ == "__main__":

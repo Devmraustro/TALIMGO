@@ -214,6 +214,16 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
   the restored copy. This checks the backup/restore path on a disposable PostgreSQL 16 database; it
   does not test your off-host backup storage, encryption/key custody, retention, or recovery-time target.
   Configure and rehearse those owner-operated controls before real learner data is stored.
+* The rehearsal script (`backend/scripts/postgres_backup_restore.py`) refuses to run unless the source
+  is the database `talimgo` on `127.0.0.1`/`localhost` reached through `postgresql+psycopg` with a
+  username and password present, so it cannot be pointed at a production host or an unrelated database.
+  It writes its dump into a temporary directory, restores only into the scratch database
+  `talimgo_restore`, and drops that scratch database on the way out whether the run succeeded or
+  failed. If the drop itself fails the run ends non-zero and says the scratch database is still there;
+  a cleanup failure never replaces the error that stopped the rehearsal. The other two scripts
+  (`postgres_smoke.py`, `postgres_legacy_migration.py`) likewise refuse any non-`postgresql+psycopg`
+  URL. Tests for these refusals and for the cleanup reporting live in
+  `backend/tests/test_postgres_scripts.py`.
 * Retention: learner data is kept until the learner deletes the account; deletion removes tutor
   messages, practice and diagnostic history, plans, evidence, consents and sessions, and anonymises
   audit rows (verified end to end in `backend/tests/test_account_lifecycle.py`). Audit retention and
