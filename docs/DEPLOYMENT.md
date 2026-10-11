@@ -198,21 +198,26 @@ the command above from inside that network instead.
 
 ### Browser smoke in CI
 
-The `browser-smoke` CI job installs pinned Playwright/Chromium and exercises the real FastAPI backend
-through the Vite same-origin proxy in a disposable SQLite environment. It creates an account, sets a
-goal, submits a real diagnostic answer, switches the interface to Arabic and verifies `lang=ar` and
-`dir=rtl`, checks that a 390-pixel viewport has no horizontal overflow, deletes the account, verifies
-the session is rejected, and fails on uncaught page errors, API 5xx responses, or requests to another
-host/port. Failure screenshots and server logs are retained as a short-lived CI artifact.
+The `browser-smoke` CI job installs pinned Playwright/Chromium and `axe-core` into a temporary
+runner directory (not the application bundle or the frontend dependency manifest). It exercises the real
+FastAPI backend through the Vite same-origin proxy in a disposable SQLite environment. It creates an
+account, sets a goal, submits a real diagnostic answer, switches the interface to Arabic and verifies
+`lang=ar` and `dir=rtl`, checks that a 390-pixel viewport has no horizontal overflow, deletes the account,
+verifies the session is rejected, and fails on uncaught page errors, API 5xx responses, or requests to
+another host/port. Failure screenshots and server logs are retained as a short-lived CI artifact.
 
-This is an automated journey smoke test, **not** a full accessibility audit or a test of the production
-Nginx CSP: it uses Vite's development server and a disposable database. A real deployment still needs a
-browser pass against the actual HTTPS host, especially to confirm that the production CSP allows the
-built app while blocking disallowed sources.
+The same Chromium job runs `axe-core 4.10.3` against WCAG 2.0/2.1/2.2 Level A and AA rules on the English
+registration, goal and diagnostic forms, and on Arabic RTL settings. This catches common machine-detectable
+issues (including many contrast and naming errors) in those representative states. It is **not** a full
+accessibility audit: automated checks cannot establish meaningful screen-reader operation, all keyboard
+focus order, or every content-dependent contrast case. The job uses Vite's development server and a
+disposable database, so it does not prove that the production Nginx CSP permits the built app while
+blocking disallowed sources. The deployed HTTPS build still needs a browser and console check.
 
-What CI does **not** cover, and what remains manual: screen-reader behaviour, contrast, 200–400% zoom
-and reflow, complete focus order, the local model's answers, backup/restore durability outside the host,
-and DNS/certificate issuance or renewal beyond trusting the certificate the runner sees.
+What CI does **not** cover, and what remains manual: screen-reader behaviour, a human contrast review in
+the actual deployed theme, 200–400% zoom and reflow, complete focus order after dynamic updates, the local
+model's answers, backup/restore durability outside the host, and DNS/certificate issuance or renewal
+beyond trusting the certificate the runner sees.
 
 ## 8. Resource limits
 

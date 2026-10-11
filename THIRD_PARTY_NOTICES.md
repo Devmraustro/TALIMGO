@@ -5,7 +5,7 @@ require. **No third-party source code is vendored in this repository** — compo
 pinned dependencies. Where a licence requires attribution in documentation, it is reproduced or
 referenced here.
 
-Last updated: 2026-10-10.
+Last updated: 2026-10-11.
 
 ---
 
@@ -53,6 +53,15 @@ package; the authoritative list for a given build is produced by the CI licence 
 | @vitejs/plugin-react | MIT | React plugin for Vite | Development only |
 
 Versions are pinned in `frontend/package.json`.
+
+Versions used by the CI browser smoke test are pinned in `.github/workflows/ci.yml` and installed
+only beneath the runner's temporary directory. They are not application dependencies and are not shipped:
+
+| Component | Licence | Used for | Source |
+|---|---|---|---|
+| Playwright 1.64.0 | Apache-2.0 | Chromium browser journey | [microsoft/playwright v1.64.0](https://github.com/microsoft/playwright/tree/v1.64.0) |
+| axe-core 4.10.3 | MPL-2.0 | Automated WCAG A/AA scans in CI only | [dequelabs/axe-core v4.10.3](https://github.com/dequelabs/axe-core/tree/v4.10.3) |
+
 
 ---
 

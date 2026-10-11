@@ -13,6 +13,7 @@ recorded. Nothing in this document is a substitute for legal advice.
 | `tripathiji1312/learn_buddy` | **MIT** (LICENSE file, © 2025 Swarnam Tripathi and Sohini Banerjee) | `eae376ce01087627efd8d79f31ab37c4a58bd94f` (2025-06-23) | **Audited. No code copied.** Defects in §2.3 |
 | `FlameEducation/FlameEducation` | **Personal, non-commercial licence** (LICENSE file) | `38382e5c97e9a03102c959da2bc20e38774e8de6` (2025-12-19) | **Excluded from a commercial product.** No code copied; studied at a high level only |
 | Tested Python/JS libraries (FastAPI, SQLAlchemy, Pydantic, Alembic, pytest, httpx, bcrypt; React, Vite, Vitest, Testing Library) | MIT / Apache-2.0 / BSD / PSF | versions pinned in manifests | **Reused as dependencies** (not vendored). Notices in `THIRD_PARTY_NOTICES.md` |
+| CI-only browser tooling (`playwright@1.64.0`, `axe-core@4.10.3`) | Apache-2.0 / MPL-2.0 (verified at `microsoft/playwright` v1.64.0 and `dequelabs/axe-core` v4.10.3) | versions pinned directly in `.github/workflows/ci.yml` and installed under `$RUNNER_TEMP` | **Test-only, not included in the product bundle, frontend manifest or lockfile.** Notices below |
 
 ---
 

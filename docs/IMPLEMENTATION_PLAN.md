@@ -531,15 +531,17 @@ form submits from the keyboard, `prefers-reduced-motion` and the in-app reduced-
 disable animation, a visible `:focus-visible` outline exists, Arabic flips direction to RTL, and the
 Arabic string table covers every English key with every placeholder interpolated.
 
-CI now also runs `.github/workflows/ci.yml`'s `browser-smoke` job with pinned Playwright/Chromium
-against the real FastAPI application plus Vite's same-origin API proxy. It verifies sign-up, goal creation,
-a real diagnostic answer, Arabic `lang`/`dir`, no horizontal overflow at a 390-pixel viewport, account
-deletion/session revocation, no uncaught page errors, no API 5xx responses, and no requests to another
-host/port. This covers one representative browser journey; it is not WCAG conformance testing and does
-not exercise the production Nginx CSP because the test uses the Vite development server.
+CI now also runs `.github/workflows/ci.yml`'s `browser-smoke` job with pinned Playwright/Chromium and
+temporary `axe-core@4.10.3` (Apache-2.0 / MPL-2.0; not shipped) against the real FastAPI application plus
+Vite's same-origin API proxy. It verifies sign-up, goal creation, a real diagnostic answer, Arabic
+`lang`/`dir`, no horizontal overflow at a 390-pixel viewport, account deletion/session revocation,
+no uncaught page errors, no API 5xx responses, and no requests to another host/port. Axe runs WCAG 2.0,
+2.1 and 2.2 Level A/AA rules on the registration, goal, diagnostic and Arabic settings views. This is a
+targeted automated accessibility gate, **not** a declaration of WCAG conformance; the job uses Vite's
+development server and does not exercise the production Nginx CSP.
 
 **Still requires manual/deployed-browser/screen-reader testing (not done, not claimed):** focus *order*
-across a whole page and after dynamic updates; colour contrast against the real rendered theme; zoom and
+across a whole page and after dynamic updates; a human contrast review on the deployed themes; zoom and
 reflow at 200–400%; virtual-cursor reading order and numeral/date presentation in Arabic; behaviour with
 an actual screen reader (NVDA, VoiceOver, TalkBack); touch target sizes on a phone; production CSP
 enforcement on the deployed build; and the teacher/admin flows, which have no interface yet.

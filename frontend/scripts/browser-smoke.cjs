@@ -2,6 +2,27 @@
 
 const assert = require("node:assert/strict");
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE_PATH || "playwright");
+const axeCore = require(process.env.AXE_CORE_MODULE_PATH || "axe-core");
+
+const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
+
+async function assertAccessibility(page, label) {
+  const violations = await page.evaluate(async (tags) => {
+    const results = await window.axe.run(document, { runOnly: { type: "tag", values: tags } });
+    return results.violations.map(({ id, impact, help, nodes }) => ({
+      id,
+      impact,
+      help,
+      targets: nodes.map(({ target }) => target),
+    }));
+  }, WCAG_TAGS);
+  assert.deepEqual(
+    violations,
+    [],
+    `${label}: axe-core found WCAG A/AA violations: ${JSON.stringify(violations, null, 2)}`,
+  );
+  console.log(`Accessibility scan passed: ${label}`);
+}
 
 const baseURL = process.env.TALIMGO_BROWSER_BASE_URL || "http://127.0.0.1:5173";
 const origin = new URL(baseURL);
@@ -30,6 +51,8 @@ async function main() {
   try {
     await page.goto(baseURL, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "Create your account", exact: true }).waitFor();
+    await page.addScriptTag({ content: axeCore.source });
+    await assertAccessibility(page, "English registration form");
 
     const email = `talimgo-browser-${Date.now()}@example.com`;
     const password = "TALIMGO-Browser-smoke-2026!";
@@ -40,12 +63,14 @@ async function main() {
 
     await page.getByRole("button", { name: "Create account", exact: true }).click();
     await page.getByRole("heading", { name: "What do you want to be able to do?", exact: true }).waitFor();
+    await assertAccessibility(page, "English goal form");
 
     await page.getByLabel("Your goal, in your own words", { exact: true }).fill(
       "Learn Python programming and build practical projects",
     );
     await page.getByRole("button", { name: "Set this goal", exact: true }).click();
     await page.getByRole("heading", { name: "Starting check", exact: true }).waitFor();
+    await assertAccessibility(page, "English diagnostic form");
 
     const radios = page.getByRole("radio");
     if ((await radios.count()) > 0) {
@@ -73,6 +98,7 @@ async function main() {
       () => document.documentElement.lang === "ar" && document.documentElement.dir === "rtl",
     );
     await page.getByRole("heading", { name: "الإعدادات وبياناتك", exact: true }).waitFor();
+    await assertAccessibility(page, "Arabic RTL settings");
 
     await page.setViewportSize({ width: 390, height: 844 });
     const horizontalOverflow = await page.evaluate(

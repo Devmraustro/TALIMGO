@@ -245,7 +245,7 @@ jobs:
         run: npm test -- --run
 
   browser-smoke:
-    name: Chromium browser journey (real API, RTL and account deletion)
+    name: Chromium browser journey and axe accessibility checks
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -273,9 +273,9 @@ jobs:
         working-directory: frontend
         run: npm ci --no-audit --no-fund
 
-      - name: Install pinned Playwright and Chromium
+      - name: Install pinned Playwright, axe-core and Chromium
         run: |
-          npm install --prefix "$RUNNER_TEMP/talimgo-browser" --no-save --no-package-lock "playwright@1.64.0"
+          npm install --prefix "$RUNNER_TEMP/talimgo-browser" --no-save --no-package-lock "playwright@1.64.0" "axe-core@4.10.3"
           "$RUNNER_TEMP/talimgo-browser/node_modules/.bin/playwright" install --with-deps chromium
 
       - name: Start API and frontend, then exercise the real browser
@@ -327,6 +327,7 @@ jobs:
           test "$web_ready" = "1"
 
           export PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/talimgo-browser/node_modules/playwright"
+          export AXE_CORE_MODULE_PATH="$RUNNER_TEMP/talimgo-browser/node_modules/axe-core"
           export TALIMGO_BROWSER_BASE_URL=http://127.0.0.1:5173
           node frontend/scripts/browser-smoke.cjs
 
