@@ -77,7 +77,6 @@ def main() -> None:
     env.setdefault("PGCONNECT_TIMEOUT", "5")
     source_args = connection_args(source_url)
     restore_url = source_url.set(database=RESTORE_DATABASE)
-    restore_args = connection_args(source_url, RESTORE_DATABASE)
 
     with tempfile.TemporaryDirectory(prefix="talimgo-pg-restore-") as temp_dir:
         dump_path = os.path.join(temp_dir, "talimgo.dump")
