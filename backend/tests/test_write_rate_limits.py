@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -63,3 +64,45 @@ def test_fixed_window_rolls_over_without_per_window_rows(client) -> None:
 
     # Crossing the UTC-minute boundary resets the counter atomically.
     assert reserve_write_request_committed(user_id, limit=1, now=moment + timedelta(seconds=30)) == 1
+
+def test_concurrent_claims_cannot_exceed_the_per_learner_limit(client) -> None:
+    """Ten independent sessions racing for three slots must not make more than three claims."""
+    register(client, email="write-rate-race@example.com")
+    with session_scope() as db:
+        user_id = db.scalar(select(User.id).where(User.email == "write-rate-race@example.com"))
+    assert user_id
+
+    start = threading.Barrier(10)
+    granted: list[int] = []
+    refused: list[str] = []
+    unexpected: list[str] = []
+    result_lock = threading.Lock()
+
+    def claim() -> None:
+        start.wait()
+        try:
+            count = reserve_write_request_committed(user_id, limit=3)
+            with result_lock:
+                granted.append(count)
+        except WriteRateLimitExceeded as exc:
+            with result_lock:
+                refused.append(str(exc))
+        except Exception as exc:  # surfaced with type/message rather than silently counted as refusal
+            with result_lock:
+                unexpected.append(f"{type(exc).__name__}: {exc}")
+
+    workers = [threading.Thread(target=claim) for _ in range(10)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=20)
+
+    assert all(not worker.is_alive() for worker in workers), "a concurrent claim did not return"
+    assert not unexpected, unexpected
+    assert sorted(granted) == [1, 1, 1], f"granted={granted}, refused={refused}"
+    assert len(refused) == 7
+    with session_scope() as db:
+        row = db.get(User, user_id)
+        assert row is not None
+        assert row.write_rate_count == 3
+
