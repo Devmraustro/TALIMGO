@@ -92,7 +92,7 @@ def test_api_flow_passes_against_the_real_application(monkeypatch, tmp_path) -> 
     with TestClient(create_app(), base_url="https://talimgo.example") as client:
         email = verify_deployment.run_api_checks(results, client)
     assert results.failures == 0, "verification checks failed"
-    assert email is not None and email.startswith("deploy-verification-")
+    assert email is None  # successful verification also confirmed account deletion
 
 
 def test_redirect_check_honours_a_rehearsal_http_port(results) -> None:
@@ -159,7 +159,7 @@ def test_api_flow_attempts_account_cleanup_after_unexpected_request_failure(monk
     with httpx.Client(transport=httpx.MockTransport(handler), base_url="https://talimgo.example") as client:
         email = verify_deployment.run_api_checks(results, client)
 
-    assert email is not None
+    assert email is None  # the connection failure was reported, but cleanup succeeded
     assert results.failures >= 1
     assert "/api/me/delete" in calls
     assert calls[-1] == "/api/auth/me"
