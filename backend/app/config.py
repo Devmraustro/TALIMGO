@@ -51,6 +51,8 @@ class Settings(BaseSettings):
     max_login_attempts: int = Field(default=8, ge=3, le=100)
     login_lockout_minutes: int = Field(default=15, ge=1, le=1440)
     min_password_length: int = Field(default=10, ge=8, le=128)
+    # Authenticated mutating requests per learner per UTC minute (fixed-window limit).
+    write_rate_limit_per_minute: int = Field(default=120, ge=1, le=10_000)
 
     # --- Local AI (never a hosted provider) ---
     ai_enabled: bool = False
@@ -60,6 +62,9 @@ class Settings(BaseSettings):
     ai_strict: bool = True
     ai_timeout_seconds: float = Field(default=60.0, gt=0, le=600)
     ai_max_output_tokens: int = Field(default=800, ge=64, le=8192)
+    # Process-local generation cap; multi-worker deployments still need a model-host cap.
+    ai_max_concurrent_requests: int = Field(default=1, ge=1, le=64)
+    ai_queue_timeout_seconds: float = Field(default=2.0, gt=0, le=60)
     ai_daily_requests_per_learner: int = Field(default=100, ge=0, le=10_000)
 
     seed_on_startup: bool = False

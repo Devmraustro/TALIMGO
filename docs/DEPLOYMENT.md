@@ -57,6 +57,14 @@ automatically in production (`/api/docs`, `/api/openapi.json` return 404).
 * The AI usage counter uses a conditional `UPDATE ... WHERE count < limit` (atomic per row on both
   SQLite and PostgreSQL) rather than a read-then-write; that is what makes the per-learner budget
   safe under concurrency (see `backend/tests/test_ai_quota.py`).
+* Authenticated mutating API requests are limited per learner by `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE`
+  (default 120 per UTC minute, fixed window). This is a per-account application guard, not a substitute
+  for edge-level limits on unauthenticated routes or abusive distributed traffic.
+* The local-model generation gate is per worker process: `TALIMGO_AI_MAX_CONCURRENT_REQUESTS`
+  (default 1) with a bounded wait of `TALIMGO_AI_QUEUE_TIMEOUT_SECONDS` (default 2 seconds).
+  A saturated request receives 503 before its daily AI allowance is claimed. Multi-worker deployments
+  must also set a matching aggregate cap at the model host or proxy; the application gate is not
+  a distributed semaphore.
 
 ## 4. HTTPS, reverse proxy and HSTS
 
@@ -87,9 +95,9 @@ Proxy rules that the application assumes but does not enforce itself:
 * set `X-Forwarded-Proto`, `X-Forwarded-For` (or `Forwarded`) and **do not** pass client-supplied
   values through (`proxy_set_header` overwrites them);
 * strip or replace `Server`/`X-Powered-By` at the edge if that is your policy;
-* rate-limit at the edge as well as in the app: `limit_req` for `/api/auth/*` (the app locks accounts
-  after `TALIMGO_MAX_LOGIN_ATTEMPTS` failures per email and per IP within
-  `TALIMGO_LOGIN_LOCKOUT_MINUTES`, but the proxy is the cheap line of defence);
+* rate-limit at the edge as well as in the app: `limit_req` for `/api/auth/*` and an appropriate
+  broader API policy. The in-app write cap only applies after authentication and is per learner; it
+  does not replace IP/edge limits or protect public registration/login routes;
 * cap request body size (the app rejects oversized bodies on the declared `Content-Length`, which a
   proxy is expected to have already bounded);
 * keep the `Set-Cookie` flags intact: sessions are `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure`
@@ -138,6 +146,9 @@ origin to `TALIMGO_ALLOWED_ORIGINS`.
 | Request body | application | `TALIMGO_MAX_REQUEST_BYTES` (default 128 KiB; hard maximum 8 MiB) |
 | Model output | application | `TALIMGO_AI_MAX_OUTPUT_TOKENS` (default 800; maximum 8192) |
 | Model requests per learner per day | application | `TALIMGO_AI_DAILY_REQUESTS_PER_LEARNER` (default 100) |
+| In-flight model generations | application worker | `TALIMGO_AI_MAX_CONCURRENT_REQUESTS` (default 1 per worker) |
+| Model queue wait | application | `TALIMGO_AI_QUEUE_TIMEOUT_SECONDS` (default 2 seconds; then 503 before quota claim) |
+| Authenticated mutating requests | application | `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE` (default 120 per learner per UTC minute) |
 | Model call timeout | application | `TALIMGO_AI_TIMEOUT_SECONDS` (default 60; maximum 600) |
 | Session lifetime | application | `TALIMGO_SESSION_TTL_HOURS` (default 336) |
 | Login attempts | application | `TALIMGO_MAX_LOGIN_ATTEMPTS` per email and per IP per window |

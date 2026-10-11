@@ -18,7 +18,10 @@ Transaction boundaries (see docs/IMPLEMENTATION_PLAN.md §7.13 and docs/LOCAL_AI
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime
 
 from sqlalchemy import select, update
@@ -34,6 +37,44 @@ from app.models import AiUsage, TutorMessage, TutorThread, User
 from app.utils import utcnow
 
 PROMPT_VERSION = "tutor-v1"
+
+
+class AiBusyError(RuntimeError):
+    """The process-local model-generation gate did not free a slot in time."""
+
+    def __init__(self, retry_after: int = 1) -> None:
+        self.retry_after = max(1, retry_after)
+        super().__init__("The local model is at capacity.")
+
+
+_MODEL_CONDITION = threading.Condition()
+_MODEL_REQUESTS_IN_FLIGHT = 0
+
+
+@contextmanager
+def model_slot(*, limit: int, wait_seconds: float) -> Iterator[None]:
+    """Bound concurrent local generations in this worker process; fail after a short wait.
+
+    This is intentionally an in-process guard, not a distributed lock. Multi-worker deployments must
+    also cap concurrency at their model host or proxy. The caller acquires a slot before spending daily
+    AI quota, so a saturated queue costs no allowance.
+    """
+    global _MODEL_REQUESTS_IN_FLIGHT
+    deadline = time.monotonic() + wait_seconds
+    with _MODEL_CONDITION:
+        while _MODEL_REQUESTS_IN_FLIGHT >= limit:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AiBusyError(retry_after=max(1, int(wait_seconds) + 1))
+            _MODEL_CONDITION.wait(timeout=remaining)
+        _MODEL_REQUESTS_IN_FLIGHT += 1
+    try:
+        yield
+    finally:
+        with _MODEL_CONDITION:
+            _MODEL_REQUESTS_IN_FLIGHT -= 1
+            _MODEL_CONDITION.notify()
+
 
 SYSTEM_PROMPT = """You are the TALIMGO tutor for a learner working through an authored curriculum.
 
@@ -166,19 +207,22 @@ def answer(
     context = build_grounding(db, objective_id=objective_id, lesson_id=lesson_id, locale=locale)
     messages = build_messages(context.markdown, question, context.citation_ids, locale)
 
-    # The claim is committed on its own before inference starts: it bounds expensive local model work
-    # under concurrency and survives every failure path below (see reserve_usage_committed).
-    used = reserve_usage_committed(user.id, limit=settings.ai_daily_requests_per_learner, now=moment)
+    # Bound model work in this worker. Queue timeouts happen before spending daily quota; the claim
+    # itself is committed before inference, so runtime failures still consume the attempted request.
+    with model_slot(
+        limit=settings.ai_max_concurrent_requests,
+        wait_seconds=settings.ai_queue_timeout_seconds,
+    ):
+        used = reserve_usage_committed(user.id, limit=settings.ai_daily_requests_per_learner, now=moment)
 
-    # Resolved at call time (not as a default argument) so tests and future runtimes can swap the
-    # client, and so monkeypatching the module attribute has its expected effect.
-    factory = client_factory or LocalModelClient
-    client = factory(settings)
-    response = client.generate(
-        ModelRequest(
-            messages=messages, max_tokens=settings.ai_max_output_tokens, temperature=0.2, json_mode=True
+        # Resolve at call time so tests and local runtimes can swap the client predictably.
+        factory = client_factory or LocalModelClient
+        client = factory(settings)
+        response = client.generate(
+            ModelRequest(
+                messages=messages, max_tokens=settings.ai_max_output_tokens, temperature=0.2, json_mode=True
+            )
         )
-    )
     parsed = validate_tutor_reply(response.text, allowed_citations=context.citation_ids)
 
     thread = db.scalar(

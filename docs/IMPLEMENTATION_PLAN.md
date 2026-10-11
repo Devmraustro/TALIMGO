@@ -590,3 +590,14 @@ data cannot distinguish the bug — and asserts that short answers and code toke
 untouched. The item-payload test in `tests/test_localisation.py` no longer contains a vacuous
 `or True`: it now asserts the exact public field set, that no internal marker is serialised, and that
 options expose only an id and a label.
+
+
+### 7.14 Authenticated write limits and bounded local-model concurrency
+
+**Authenticated write-rate limit.** Authenticated mutating routes that use `CurrentUser` claim one unit in a fixed UTC-minute window, with a default cap of 120 per learner. The window and count live on the `users` row, added by migration `c4a7d9e12f60`; a single conditional `UPDATE` resets the old window or increments the current counter only when the request is still within the cap. The claim is committed using a dedicated short session, so it cannot be rolled back with the request or be bypassed by concurrent application workers. A refused request returns 429 and a `Retry-After` header. Reads do not consume this allowance. Login and registration still need edge-level controls; the in-app policy is per authenticated learner, fixed-window, and does not replace IP or reverse-proxy rate limits.
+
+**Local-model concurrency.** The tutor now acquires a condition-based generation slot before claiming the daily AI allowance. Defaults are one active generation per worker process and a two-second queue wait. If no slot opens in time, the request returns 503 with `Retry-After`; the daily AI allowance is untouched. Once admitted, the daily allowance is durably claimed before local inference, preserving §7.13's failed-call accounting. The slot is released in a `finally` block for both successful and failed generations.
+
+**Deployment boundary.** This guard is process-wide, not a distributed semaphore: two API worker processes each have their own configured capacity. A production multi-worker deployment must additionally cap aggregate concurrency at the model host or proxy. The guide and threat model now distinguish this boundary rather than calling it a global cap. This environment has not exercised multiple workers, PostgreSQL, or an actual model runtime.
+
+**Regression coverage added.** `tests/test_write_rate_limits.py` covers 429 responses, continued read access, learner isolation and UTC-minute rollover. `tests/test_model_concurrency.py` covers bounded waiting, releasing the slot after exceptions, and the saturated-API path proving that a 503 consumes no AI allowance and stores no tutor exchange. These tests and the full CI results must be checked on the pushed commit before this checkpoint is called complete.

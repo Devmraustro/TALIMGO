@@ -18,6 +18,7 @@ from app.config import Settings, get_settings
 from app.db import get_db
 from app.i18n import normalise_locale, request_locale
 from app.models import Profile, Session, User
+from app.request_rate_limits import WriteRateLimitExceeded, reserve_write_request_committed
 from app.security import hash_session_token, session_is_active
 from app.utils import ensure_aware, utcnow
 
@@ -60,10 +61,22 @@ def get_optional_user(
 
 
 def get_current_user(
+    request: Request,
     user: Annotated[User | None, Depends(get_optional_user)],
 ) -> User:
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        try:
+            reserve_write_request_committed(
+                user.id, limit=get_settings().write_rate_limit_per_minute
+            )
+        except WriteRateLimitExceeded as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="You are sending changes too quickly. Please wait before trying again.",
+                headers={"Retry-After": str(exc.retry_after)},
+            ) from exc
     return user
 
 

@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.ai.adapter import LocalModelResponseError, LocalModelUnavailable
 from app.ai.grounding import GroundingMismatchError
 from app.ai.schemas import TutorOutputRejected
-from app.ai.tutor import AiBudgetExceededError, AiDisabledError, answer, usage_today
+from app.ai.tutor import AiBudgetExceededError, AiBusyError, AiDisabledError, answer, usage_today
 from app.config import get_settings
 from app.deps import CurrentUser, Db
 from app.models import ConsentRecord, Objective, TutorMessage, TutorThread
@@ -76,6 +76,16 @@ def ask(payload: TutorAskIn, user: CurrentUser, db: Db) -> TutorReplyOut:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except AiBudgetExceededError as exc:
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)) from exc
+    except AiBusyError as exc:
+        logger.warning("local model concurrency cap reached")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "Tutoring is at capacity right now. Try again shortly; this request did not consume "
+                "today's tutoring allowance."
+            ),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
     except LocalModelUnavailable as exc:
         # Explicit failure: the learner is told tutoring is offline; nothing else is contacted. The
         # endpoint address and the transport error class go to the log, not to the learner (the same

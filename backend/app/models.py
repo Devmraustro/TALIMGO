@@ -46,6 +46,10 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+    # UTC minute-window counter used by authenticated-write rate limiting. The conditional update
+    # is atomic across requests/workers; zero defaults keep existing accounts immediately valid.
+    write_rate_window: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    write_rate_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 class Session(Base):
