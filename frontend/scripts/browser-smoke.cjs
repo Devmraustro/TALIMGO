@@ -7,7 +7,15 @@ const axeCore = require(process.env.AXE_CORE_MODULE_PATH || "axe-core");
 const WCAG_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"];
 
 async function assertAccessibility(page, label) {
-  const violations = await page.evaluate(async (tags) => {
+  // Theme and hover changes can start short CSS background transitions. Measure the stable
+  // rendered state, not an intermediate animation frame whose colors exist for milliseconds.
+  await page.evaluate(async () => {
+    const transitions = document
+      .getAnimations()
+      .filter((animation) => animation.constructor.name === "CSSTransition" && animation.playState === "running");
+    await Promise.all(transitions.map((animation) => animation.finished.catch(() => undefined)));
+  });
+  const violations = await page.evaluate(async (tags) {
     const results = await window.axe.run(document, { runOnly: { type: "tag", values: tags } });
     return results.violations.map(({ id, impact, help, nodes }) => ({
       id,
