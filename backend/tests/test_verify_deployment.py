@@ -7,6 +7,7 @@ edge and is asserted in CI's ``proxy-tls-smoke`` job and documented in docs/DEPL
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -183,7 +184,7 @@ def test_verifier_uses_a_fresh_per_run_password_for_registration_and_cleanup(mon
     generated: list[int] = []
     registered_passwords: list[str] = []
     deletion_passwords: list[str] = []
-    email = "deploy-verification-unique@example.com"
+    registered_emails: list[str] = []
     me_calls = 0
 
     def generate_password(length: int) -> str:
@@ -208,15 +209,14 @@ def test_verifier_uses_a_fresh_per_run_password_for_registration_and_cleanup(mon
         if request.url.path == "/api/docs":
             return httpx.Response(404)
         if request.url.path == "/api/auth/register":
-            payload = request.read().decode()
-            import json
-
-            registered_passwords.append(json.loads(payload)["password"])
+            payload = json.loads(request.read().decode())
+            registered_emails.append(payload["email"])
+            registered_passwords.append(payload["password"])
             return httpx.Response(201, json={"id": "user"})
         if request.url.path == "/api/auth/me":
             me_calls += 1
             if me_calls == 1:
-                return httpx.Response(200, json={"user": {"email": email}})
+                return httpx.Response(200, json={"user": {"email": registered_emails[0]}})
             return httpx.Response(401)
         if request.url.path == "/api/curriculum/paths":
             return httpx.Response(200, json=[{"id": "python-foundations"}])
@@ -225,8 +225,6 @@ def test_verifier_uses_a_fresh_per_run_password_for_registration_and_cleanup(mon
         if request.url.path == "/api/goals":
             return httpx.Response(200, json=[{"id": "goal-1"}])
         if request.url.path == "/api/me/delete":
-            import json
-
             deletion_passwords.append(json.loads(request.read().decode())["password"])
             return httpx.Response(204)
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
@@ -236,6 +234,7 @@ def test_verifier_uses_a_fresh_per_run_password_for_registration_and_cleanup(mon
         result_email = verify_deployment.run_api_checks(results, client)
 
     assert generated == [32]
+    assert registered_emails[0].startswith("deploy-verification-")
     assert registered_passwords == ["fresh-per-run-test-password-with-enough-entropy"]
     assert deletion_passwords == registered_passwords
     assert result_email is None
