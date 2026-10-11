@@ -65,6 +65,7 @@ def test_fixed_window_rolls_over_without_per_window_rows(client) -> None:
     # Crossing the UTC-minute boundary resets the counter atomically.
     assert reserve_write_request_committed(user_id, limit=1, now=moment + timedelta(seconds=30)) == 1
 
+
 def test_concurrent_claims_cannot_exceed_the_per_learner_limit(client) -> None:
     """Ten independent sessions racing for three slots must not make more than three claims."""
     register(client, email="write-rate-race@example.com")
