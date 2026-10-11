@@ -18,6 +18,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import get_settings
 from app.db import Base, get_engine, session_scope
+from app.http_hardening import apply_hardening_headers
+from app.request_guards import apply_request_guards
 from app.routers import (
     admin,
     auth,
@@ -99,6 +101,14 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["content-type", "authorization"],
     )
+
+    # Guards run inside CORS (so preflights are answered) and before routing (so a rejected request
+    # never reaches a handler): JSON-only bodies and a declared size limit (app/request_guards.py).
+    app.middleware("http")(apply_request_guards)
+
+    # Registered last, so it is the outermost layer: successful responses, guard rejections, error
+    # responses and CORS preflight replies all carry the same policy (app/http_hardening.py).
+    app.middleware("http")(apply_hardening_headers)
 
     for router in (
         health.router,

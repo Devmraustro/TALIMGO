@@ -54,6 +54,16 @@ FORBIDDEN_PACKAGES = {
 # app/ai/policy.py exists to name these; nothing else may mention them in a URL literal.
 PROVIDER_MENTION_ALLOWLIST = {BACKEND / "app" / "ai" / "policy.py"}
 
+# Narrow, self-expiring exceptions for *browser* asset origins in a Content-Security-Policy string:
+# they name hosts the learner's browser may fetch from when viewing the development-only interactive
+# API docs. The application itself never requests them, they do not exist in production (the docs
+# routes are disabled), and each entry is a (relative path, exact literal) pair. Entries that stop
+# being used are reported as failures, so this cannot decay into a blanket file exemption.
+CSP_LITERAL_EXCEPTIONS = {
+    ("backend/app/http_hardening.py", "https://cdn.jsdelivr.net"),
+    ("backend/app/http_hardening.py", "https://fastapi.tiangolo.com"),
+}
+
 
 def is_local_host(host: str) -> bool:
     if host in {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}:
@@ -74,8 +84,10 @@ def source_files() -> list[Path]:
 
 def check_urls(failures: list[str]) -> int:
     checked = 0
+    used_exceptions: set[tuple[str, str]] = set()
     for path in source_files():
         text = path.read_text(encoding="utf-8")
+        relative = str(path.relative_to(REPO))
         for match in URL_PATTERN.finditer(text):
             raw = match.group(0)
             host = urlparse(raw).hostname or ""
@@ -84,7 +96,15 @@ def check_urls(failures: list[str]) -> int:
                 continue
             if path in PROVIDER_MENTION_ALLOWLIST:
                 continue
-            failures.append(f"{path.relative_to(REPO)}: non-local URL literal {raw!r}")
+            if (relative, raw) in CSP_LITERAL_EXCEPTIONS:
+                used_exceptions.add((relative, raw))
+                continue
+            failures.append(f"{relative}: non-local URL literal {raw!r}")
+    for stale in sorted(CSP_LITERAL_EXCEPTIONS - used_exceptions):
+        failures.append(
+            f"{stale[0]}: stale CSP exception for {stale[1]!r} — remove it from "
+            "CSP_LITERAL_EXCEPTIONS"
+        )
     return checked
 
 

@@ -107,14 +107,59 @@ def test_docs_are_available_in_development(client) -> None:
     assert client.get("/api/openapi.json").status_code == 200
 
 
-def test_security_headers_are_not_missing_silently(client) -> None:
-    """Documents current behaviour: the API does not yet send hardening headers.
+def test_security_headers_are_present_and_policy_is_tested_elsewhere(client) -> None:
+    """The placeholder "headers are absent" test is gone: the policy now exists (app/http_hardening.py)
 
-    This test fails as soon as headers are added, forcing the documentation to be updated with it.
+    and its full contract lives in tests/test_http_hardening.py. Kept here as a one-line tripwire so
+    that removing the middleware cannot pass unnoticed.
     """
     response = client.get("/api/health")
-    assert response.headers.get("x-content-type-options") is None
     assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+
+
+# --- session cookies ---------------------------------------------------------------------
+
+
+def _register_and_capture_cookie(client, email: str) -> str:
+    response = client.post(
+        "/api/auth/register",
+        json={
+            "email": email,
+            "password": "correct-horse-battery",
+            "display_name": "Cookie Learner",
+            "accept_terms": True,
+            "accept_ai_processing": False,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.headers["set-cookie"]
+
+
+def test_the_session_cookie_is_httponly_samesite_lax_and_path_scoped(client) -> None:
+    cookie = _register_and_capture_cookie(client, "cookie-policy@example.com")
+    lowered = cookie.lower()
+    assert "httponly" in lowered, "a session cookie must not be readable from JavaScript"
+    assert "samesite=lax" in lowered, "Lax is what keeps a cross-site form POST from carrying it"
+    assert "path=/" in lowered
+    assert "secure" not in lowered, "development runs over http; Secure is a production property"
+
+
+def test_the_session_cookie_is_secure_in_production(client_factory) -> None:
+    """Secure is driven by the environment, so this asserts the production value explicitly."""
+    development = client_factory()
+    assert "secure" not in _register_and_capture_cookie(development, "dev-cookie@example.com").lower()
+
+    production = client_factory(TALIMGO_ENV="production")
+    cookie = _register_and_capture_cookie(production, "prod-cookie@example.com")
+    assert "secure" in cookie.lower()
+
+
+def test_a_session_cookie_is_not_accepted_after_logout(client) -> None:
+    _register_and_capture_cookie(client, "logout@example.com")
+    assert client.get("/api/auth/me").status_code == 200
+    assert client.post("/api/auth/logout").status_code in {200, 204}
+    assert client.get("/api/auth/me").status_code == 401
 
 
 # --- repository hygiene ----------------------------------------------------------------

@@ -64,6 +64,24 @@ def client(tmp_path, monkeypatch) -> Iterator[TestClient]:
 
 
 @pytest.fixture()
+def client_factory(tmp_path, monkeypatch):
+    """Builds app clients with arbitrary environment overrides (AI stays off unless asked)."""
+
+    created: list[TestClient] = []
+
+    def factory(**extra) -> TestClient:
+        enabled = str(extra.pop("ai_enabled", "false")).lower() == "true"
+        test_client = _build_client(tmp_path, monkeypatch, ai_enabled=enabled, extra=extra)
+        test_client.__enter__()
+        created.append(test_client)
+        return test_client
+
+    yield factory
+    for test_client in created:
+        test_client.__exit__(None, None, None)
+
+
+@pytest.fixture()
 def ai_client_factory(tmp_path, monkeypatch):
     """Builds app clients with AI enabled; the caller supplies extra env overrides."""
 

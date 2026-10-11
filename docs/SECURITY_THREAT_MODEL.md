@@ -82,3 +82,50 @@ Last reviewed: 2026-10-10.
 2. **Local runtime hardening is a deployment responsibility** that is currently documented rather than automated. Shipping without an egress-blocked runtime fails the intent of the local-AI policy at the infrastructure layer, even if the code is correct.
 3. **Session secret management in development** is convenience-first; production configuration requirements are documented but not enforced by tooling beyond a startup check.
 4. **Model output quality is a safety surface**, not only a quality surface. Grounding and validation reduce but do not eliminate harmful or wrong answers; the human-reporting path and the evaluation harness are the mitigations, and the evaluation harness against real weights is not yet running.
+
+## Baseline HTTP hardening (implemented, 2026-10-11)
+
+The API is JSON; the interface is a separate static app. The policy in `backend/app/http_hardening.py`
+is therefore deliberately small, and each header answers a named risk rather than a checklist box.
+
+| Header | Value | Risk it addresses | Notes and limits |
+|---|---|---|---|
+| `X-Content-Type-Options` | `nosniff` | A browser re-interpreting a JSON error body as HTML/script (content-type confusion) | Applies to every response, including errors and preflights |
+| `Referrer-Policy` | `no-referrer` | TALIMGO URLs leaking to third-party sites through the `Referer` header | — |
+| `X-Frame-Options` + CSP `frame-ancestors` | `DENY` / `'none'` | Clickjacking of any HTML this service might serve (currently only the development docs UI) | Belt and braces: older browsers read the header, modern ones the directive |
+| `Content-Security-Policy` | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; sandbox` | Any injected script/style/frame/plugin on an API response; also blocks `base`-tag and form hijacking | The development docs UI gets its own policy (Swagger UI loads a CDN bundle); production serves no HTML from this service at all |
+| `Permissions-Policy` | 23 features set to `()` | Silent use of camera, microphone, geolocation, USB, payment, etc. by injected or future code | The list is explicit; enabling a feature requires a product decision and a code change |
+| `Strict-Transport-Security` | `max-age=31536000` | Protocol downgrade and cookie theft on a later plain-HTTP request | **Only ever sent when the request arrived over HTTPS** (directly, or via `X-Forwarded-Proto` set by the proxy). `includeSubDomains`/`preload` are deliberately omitted — they need a domain inventory the owner has not provided |
+
+Verified by `backend/tests/test_http_hardening.py` (11 tests) and the tripwire in
+`tests/test_security_basics.py`: the baseline on success/error/preflight responses, frame-embedding
+blocked twice over, the unused-feature list, HSTS only over HTTPS (and tolerating the shapes a proxy
+sends), the docs policy staying separate from the API policy, and production serving no interactive
+docs while keeping the policy.
+
+**What this is not.** It is a header and behaviour checklist enforced by tests. No penetration test,
+no TLS termination review, no browser-driven security testing and no review by a second human has been
+performed. TLS configuration, certificate management, proxy hardening, header-stripping at the edge and
+rate limiting upstream are deployment concerns documented in `docs/DEPLOYMENT.md`, not properties this
+repository can demonstrate by itself. `Cross-Origin-Opener-Policy`, `Cross-Origin-Embedder-Policy` and
+`Cross-Origin-Resource-Policy` were considered and are deliberately not set: the first two govern
+documents (this service returns JSON) and the third restricts no-CORS embedding that the CORS check
+already covers, while risking breakage of the legitimate cross-origin development frontend.
+
+## Security review of session, request and resource handling (2026-10-11)
+
+A code review of the areas the deployment depends on, with what was changed and what remains. This is
+a review by the same engineer who wrote the code — it is **not** an independent audit, and it says
+nothing about the reverse proxy, the host OS or the model runtime's own hardening.
+
+| Area | What the code does | Change made | Residual risk / who owns it |
+|---|---|---|---|
+| Session cookies | `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` when `TALIMGO_ENV=production` | Flags had no regression test; three tests added | A deployment that claims production but runs with `TALIMGO_ENV=development` loses `Secure`. Deployment-guide requirement |
+| CSRF | No CSRF token. Relies on `SameSite=Lax` **and** a JSON-only API: mutating requests with a body must be `application/json`, which a cross-site HTML form cannot send | New request guard rejects form/text/multipart bodies with 415 (bodyless requests such as logout still work) | Browsers without SameSite support and same-site subdomain attackers are out of scope; a reverse proxy should also set `Origin` checks if it terminates auth |
+| Login rate limiting | Failed attempts are rows in `login_attempts`, counted per email **and** per IP inside `TALIMGO_LOGIN_LOCKOUT_MINUTES`; works across workers because it is in the database | Unchanged (reviewed) | Lockout is also a denial-of-service lever against a known email; the proxy's `limit_req` is the cheaper first line. Owner: tune the thresholds |
+| Model request limits | Daily allowance per learner, claimed **before** the call with a conditional `UPDATE ... WHERE count < limit` | Replaced read-then-write with an atomic claim; reservation is not refunded on failure (documented, deliberate) | No global or per-model concurrency cap in the app; the model runtime must limit concurrent generations, and the proxy/queue must shape traffic. Owner: model host limits |
+| Concurrent model requests | One process, one SQLite writer in development; PostgreSQL in production; the claim is atomic per row on both | Concurrency test added (10 threads, limit 3, exactly 3 grants) | Verified on SQLite only; PostgreSQL behaves the same for a single-row conditional UPDATE but has not been exercised here |
+| Input bounds | Pydantic field limits on every schema (e.g. goal statement ≤500, tutor question ≤2000, passwords ≤256), plus a body-size guard (default 128 KiB, hard max 8 MiB) and mandatory JSON | Body-size and content-type guard added | Field limits are per-schema and must be reviewed when new fields appear; no per-learner write-rate limit exists yet |
+| Output bounds | Model output capped by `TALIMGO_AI_MAX_OUTPUT_TOKENS` (default 800, max 8192) and validated against a strict JSON schema with citation allow-listing | Reviewed, unchanged | A local model can still emit long outputs up to the cap; the timeout bounds latency |
+| Data growth | `login_attempts` and `sessions` pruned by `python -m app.maintenance` (30-day retention, dry-run available, audited); evidence and audit rows grow by design | Maintenance command documented and tested (retention boundaries, dry run, idempotency, audit rows untouched) | Evidence/audit retention is an owner policy decision — documented in `docs/DEPLOYMENT.md` §9, not silently applied |
+| Learner data deletion | Deletes tutor messages/threads, practice+diagnostic history, plans, evidence, consent, sessions, profile and the user; anonymises audit rows; keeps curriculum | **Bug found and fixed**: four `select(Model.id)` comprehensions treated scalar ids as ORM rows, so deleting an account that had ever used the tutor raised `AttributeError` (HTTP 500) instead of deleting | Verified end to end against a learner with real history (`tests/test_account_lifecycle.py`); automated backups may still hold deleted data — backup retention is owner policy |
