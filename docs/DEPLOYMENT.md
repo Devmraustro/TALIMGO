@@ -74,44 +74,35 @@ automatically in production (`/api/docs`, `/api/openapi.json` return 404).
 
 ## 4. HTTPS, reverse proxy and HSTS
 
-The application sends `Strict-Transport-Security` **only** when the request arrives over HTTPS, which
-means the proxy must set `X-Forwarded-Proto: https` (a header the app only reads to *add* HSTS).
+Use the checked-in standalone example at `deploy/nginx/talimgo.conf.example` as the starting point.
+Before deployment, replace `talimgo.example` with the actual hostname, provision the referenced
+certificate/key, and ensure the frontend build is available at `/srv/talimgo/frontend/dist`. The API
+is expected to listen on `127.0.0.1:8000`; it must not be published directly to the internet.
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name talimgo.example;
-    ssl_certificate     /etc/letsencrypt/live/talimgo.example/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/talimgo.example/privkey.pem;
-    client_max_body_size 256k;          # the API refuses larger bodies anyway (TALIMGO_MAX_REQUEST_BYTES)
+The example includes HTTP-to-HTTPS redirection (while allowing ACME challenges), TLS 1.2/1.3,
+a 256 KiB request-body cap, static SPA routing, separate per-IP rate limits for authentication and
+other API traffic, HSTS, and explicit replacement of forwarded headers. CI runs `nginx -t` against
+this configuration and smoke-tests the redirect, TLS/static response, HSTS, spoofed forwarding
+headers, and authentication rate limit using an ephemeral test certificate and a fake local upstream.
+That validates the example configuration and edge behaviour in CI, **not** the live domain, real
+certificate renewal, firewall, or production routing.
 
-    # Redirect all plain HTTP to HTTPS; never serve credentials over http.
-    location / { return 301 https://$host$request_uri; }
-}
-server {
-    listen 80;
-    server_name talimgo.example;
-    location /.well-known/acme-challenge/ { root /var/www/certbot; }
-    location / { return 301 https://$host$request_uri; }
-}
-```
+The application sends `Strict-Transport-Security` only when the request arrives over HTTPS, which
+means the proxy must set `X-Forwarded-Proto: https`. In the checked-in example, Nginx owns the public
+HSTS header and hides the upstream copy to avoid duplicate values.
 
-Proxy rules that the application assumes but does not enforce itself:
+Proxy rules the application assumes but does not enforce itself:
 
-* set `X-Forwarded-Proto`, `X-Forwarded-For` (or `Forwarded`) and **do not** pass client-supplied
-  values through (`proxy_set_header` overwrites them);
+* set `X-Forwarded-Proto`, `X-Forwarded-For` and `X-Real-IP` from trusted connection values, and
+  discard the client-supplied `Forwarded` header; do not forward the request's untrusted versions;
 * strip or replace `Server`/`X-Powered-By` at the edge if that is your policy;
-* rate-limit at the edge as well as in the app: `limit_req` for `/api/auth/*` and an appropriate
-  broader API policy. The in-app write cap only applies after authentication and is per learner; it
-  does not replace IP/edge limits or protect public registration/login routes;
-* cap request body size (the app rejects oversized bodies on the declared `Content-Length`, which a
-  proxy is expected to have already bounded);
-* keep the `Set-Cookie` flags intact: sessions are `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure`
-  in production.
+* rate-limit at the edge as well as in the app: the example has stricter limits for `/api/auth/*`
+  plus a broader API policy. Tune them to expected traffic before production;
+* cap request bodies at the proxy (the example uses 256 KiB; the API also applies its own limit);
+* keep session cookies intact: `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` in production.
 
-The interface is a static build (`frontend/dist`) served by the proxy from a separate path or host.
-It calls the API same-origin (`/api/...`), so serve it behind the same origin or add the interface
-origin to `TALIMGO_ALLOWED_ORIGINS`.
+The interface is a static build (`frontend/dist`) served by Nginx from the same origin. It calls the API
+through `/api/...`, so this avoids adding a separate interface origin to `TALIMGO_ALLOWED_ORIGINS`.
 
 ## 5. Secrets
 
@@ -187,9 +178,12 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 ```
 
 * Backups: `pg_dump` on a schedule to storage outside the host, plus the model directory if you have
-  customised it (weights are re-downloadable; learner data is not). Test a restore into a scratch
-  database before you need it, and verify the app starts and serves `/api/health` against the restored
-  copy.
+  customised it (weights are re-downloadable; learner data is not). CI performs a format-custom
+  `pg_dump`/ `pg_restore` rehearsal into a separate scratch database, compares the public table set,
+  per-table row counts and Alembic revision, then runs the API health/account/session/goal smoke against
+  the restored copy. This checks the backup/restore path on a disposable PostgreSQL 16 database; it
+  does not test your off-host backup storage, encryption/key custody, retention, or recovery-time target.
+  Configure and rehearse those owner-operated controls before real learner data is stored.
 * Retention: learner data is kept until the learner deletes the account; deletion removes tutor
   messages, practice and diagnostic history, plans, evidence, consents and sessions, and anonymises
   audit rows (verified end to end in `backend/tests/test_account_lifecycle.py`). Audit retention and
@@ -216,6 +210,7 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 - [ ] TLS terminated by the proxy; HTTP redirects; `X-Forwarded-Proto` set by the proxy.
 - [ ] `/api/docs` returns 404; hardening headers present on `/api/health` (see the threat model).
 - [ ] Egress from the API host blocked; model runtime reachable only on the private path.
-- [ ] `python -m app.maintenance --dry-run` runs; backup and restore rehearsed.
+- [ ] `python -m app.maintenance --dry-run` runs; production backup and restore rehearsed against off-host storage.
+- [ ] `nginx -t` succeeds with the real hostname/certificate paths; HTTP redirect, HSTS, forwarding-header trust and edge rate limits verified.
 - [ ] Pilot account created, export downloaded, deletion performed and verified on a throwaway account.
 - [ ] Logs shipped, health check wired into the supervisor, resource limits applied.

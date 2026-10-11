@@ -1,0 +1,158 @@
+"""Rehearse PostgreSQL backup and restore against a disposable local CI service.
+
+This deliberately refuses arbitrary database targets: it only operates on the CI source database
+named "talimgo" at loopback and a dedicated scratch database named "talimgo_restore".
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import make_url
+
+SOURCE_DATABASE = "talimgo"
+RESTORE_DATABASE = "talimgo_restore"
+EXPECTED_HOSTS = {"127.0.0.1", "localhost"}
+
+
+def run(args: list[str], env: dict[str, str]) -> None:
+    subprocess.run(args, check=True, env=env)
+
+
+def connection_args(url, database: str | None = None) -> list[str]:
+    args = [
+        "--host",
+        url.host or "127.0.0.1",
+        "--port",
+        str(url.port or 5432),
+        "--username",
+        url.username or "postgres",
+    ]
+    if database is not None:
+        args.extend(["--dbname", database])
+    return args
+
+
+def table_counts(database_url: str) -> dict[str, int]:
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            names = inspect(connection).get_table_names(schema="public")
+            counts: dict[str, int] = {}
+            for name in sorted(names):
+                quoted = name.replace('"', '""')
+                counts[name] = int(
+                    connection.execute(text(f'SELECT COUNT(*) FROM public."{quoted}"')).scalar_one()
+                )
+            return counts
+    finally:
+        engine.dispose()
+
+
+def alembic_revision(database_url: str) -> str:
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            return str(connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one())
+    finally:
+        engine.dispose()
+
+
+def main() -> None:
+    raw_url = os.environ.get("TALIMGO_DATABASE_URL", "")
+    if not raw_url.startswith("postgresql+psycopg://"):
+        raise SystemExit("Refusing to run: TALIMGO_DATABASE_URL must use postgresql+psycopg.")
+    source_url = make_url(raw_url)
+    if source_url.database != SOURCE_DATABASE or source_url.host not in EXPECTED_HOSTS:
+        raise SystemExit("Refusing to run: source must be loopback PostgreSQL database 'talimgo'.")
+    if not source_url.username or source_url.password is None:
+        raise SystemExit("Refusing to run: PostgreSQL username and password are required.")
+
+    env = os.environ.copy()
+    env["PGPASSWORD"] = source_url.password
+    env.setdefault("PGCONNECT_TIMEOUT", "5")
+    source_args = connection_args(source_url)
+    restore_url = source_url.set(database=RESTORE_DATABASE)
+    restore_args = connection_args(source_url, RESTORE_DATABASE)
+
+    with tempfile.TemporaryDirectory(prefix="talimgo-pg-restore-") as temp_dir:
+        dump_path = os.path.join(temp_dir, "talimgo.dump")
+        try:
+            run(
+                [
+                    "pg_dump",
+                    *source_args,
+                    "--format=custom",
+                    "--no-owner",
+                    "--no-acl",
+                    "--file",
+                    dump_path,
+                    SOURCE_DATABASE,
+                ],
+                env,
+            )
+            if not os.path.isfile(dump_path) or os.path.getsize(dump_path) == 0:
+                raise AssertionError("pg_dump did not create a non-empty backup.")
+
+            run(["dropdb", "--if-exists", *source_args, RESTORE_DATABASE], env)
+            run(
+                [
+                    "createdb",
+                    *source_args,
+                    "--owner",
+                    source_url.username,
+                    RESTORE_DATABASE,
+                ],
+                env,
+            )
+            run(
+                [
+                    "pg_restore",
+                    *source_args,
+                    "--dbname",
+                    RESTORE_DATABASE,
+                    "--exit-on-error",
+                    "--no-owner",
+                    "--no-acl",
+                    dump_path,
+                ],
+                env,
+            )
+
+            source_counts = table_counts(raw_url)
+            restored_counts = table_counts(str(restore_url))
+            if source_counts != restored_counts:
+                raise AssertionError(
+                    f"Backup/restore row counts differ. Source: {source_counts}; "
+                    f"restored: {restored_counts}"
+                )
+            if source_counts.get("users", 0) < 1 or source_counts.get("goals", 0) < 1:
+                raise AssertionError("Backup rehearsal must include a populated user and goal.")
+            source_revision = alembic_revision(raw_url)
+            restored_revision = alembic_revision(str(restore_url))
+            if source_revision != restored_revision:
+                raise AssertionError(
+                    f"Alembic revision changed across restore: {source_revision} != {restored_revision}"
+                )
+
+            restored_env = env.copy()
+            restored_env["TALIMGO_DATABASE_URL"] = str(restore_url)
+            subprocess.run(
+                [sys.executable, "scripts/postgres_smoke.py"],
+                check=True,
+                env=restored_env,
+            )
+            print(
+                "PostgreSQL backup/restore passed: custom dump restored, all public table row counts "
+                "and Alembic revision match, and restored API health/account/session/goal smoke passed."
+            )
+        finally:
+            run(["dropdb", "--if-exists", *source_args, RESTORE_DATABASE], env)
+
+
+if __name__ == "__main__":
+    main()

@@ -110,6 +110,80 @@ jobs:
       - name: Smoke-test startup, account/session and goal persistence on PostgreSQL
         run: python scripts/postgres_smoke.py
 
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+
+      - name: Dump, restore into a scratch database and exercise the restored API
+        run: python scripts/postgres_backup_restore.py
+
+  proxy-tls-smoke:
+    name: Reverse proxy (TLS, redirects and trusted forwarding headers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nginx and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx openssl curl
+
+      - name: Validate and smoke-test the example HTTPS edge configuration
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /etc/letsencrypt/live/talimgo.example /srv/talimgo/frontend/dist /var/www/certbot
+          sudo openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /etc/letsencrypt/live/talimgo.example/privkey.pem \
+            -out /etc/letsencrypt/live/talimgo.example/fullchain.pem \
+            -subj "/CN=talimgo.example" \
+            -addext "subjectAltName=DNS:talimgo.example"
+          printf '%s\n' '<!doctype html><title>TALIMGO</title><main>TALIMGO edge smoke</main>' \
+            | sudo tee /srv/talimgo/frontend/dist/index.html >/dev/null
+          sudo nginx -t -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example"
+
+          python3 deploy/nginx/ci_upstream.py >/tmp/talimgo-upstream.log 2>&1 &
+          upstream_pid=$!
+          cleanup() {
+            sudo nginx -s stop -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example" >/dev/null 2>&1 || true
+            kill "$upstream_pid" >/dev/null 2>&1 || true
+            wait "$upstream_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          sudo nginx -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example"
+          for _ in $(seq 1 30); do
+            if curl -sk --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          redirect=$(curl -sS -o /dev/null -w '%{http_code}|%{redirect_url}' \
+            -H 'Host: talimgo.example' 'http://127.0.0.1/demo?from=http')
+          test "$redirect" = '301|https://talimgo.example/demo?from=http'
+
+          page=$(curl -sk --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/)
+          grep -q 'TALIMGO edge smoke' <<<"$page"
+
+          hsts=$(curl -skI --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ \
+            | tr -d '\r' | grep -i '^Strict-Transport-Security:')
+          grep -qi 'max-age=31536000' <<<"$hsts"
+
+          forwarded=$(curl -skfS --resolve talimgo.example:443:127.0.0.1 \
+            -H 'X-Forwarded-Proto: http' \
+            -H 'X-Forwarded-For: 203.0.113.11' \
+            -H 'Forwarded: for=203.0.113.11' \
+            https://talimgo.example/api/health)
+          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); h=d["headers"]; assert h["X-Forwarded-Proto"] == "https", h; assert h["X-Forwarded-For"] == "127.0.0.1", h; assert h["Forwarded"] is None, h; print("TLS proxy trust-boundary passed")' "$forwarded"
+
+          # Seven immediate requests exceed the six-request burst budget for one client.
+          for attempt in $(seq 1 7); do
+            auth_status=$(curl -sk -o /dev/null -w '%{http_code}' \
+              --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/api/auth/ci-probe)
+          done
+          test "$auth_status" = '429'
+
   local-only-ai:
     name: Local-only AI gate (no hosted providers in code or manifests)
     runs-on: ubuntu-latest

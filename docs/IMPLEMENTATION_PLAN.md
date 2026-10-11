@@ -617,3 +617,22 @@ steps re-apply the migration idempotently and run the API persistence smoke test
 backup/restore, large-table lock-duration, or multi-million-row migration test. Those remain part of
 deployment acceptance.
 
+### 7.16 PostgreSQL backup/restore and Nginx TLS-edge smoke tests
+
+The PostgreSQL CI job now creates a custom-format `pg_dump` of the migrated, populated CI database,
+drops/recreates a fixed disposable `talimgo_restore` database, restores with `pg_restore --exit-on-error`,
+and compares the public table names, row counts for every table, and Alembic revision before exercising
+the restored database with the same API smoke script (health, account/session round-trip and goal
+write/read). The script refuses to operate unless the configured source is the expected loopback
+database named `talimgo`, and it drops the scratch database and temporary dump on completion.
+
+A new standalone Nginx example provides TLS 1.2/1.3, an HTTP redirect with an ACME exception, static SPA
+routing, the local API upstream, edge request-body caps, authentication/general API rate limits, HSTS,
+and replacement of spoofable forwarding headers. A CI job installs Nginx, creates an ephemeral test
+certificate, runs `nginx -t`, then tests the redirect, served frontend, HSTS, spoofed-header rejection,
+and authentication limiter against a tiny local fake upstream.
+
+**Boundary.** These checks prove backup/restore and edge behaviour only in disposable CI infrastructure.
+They do not prove off-host storage durability, secret/key custody, certificate renewal, DNS/firewall
+configuration, production traffic behaviour, RPO/RTO, or a real externally managed deployment.
+
