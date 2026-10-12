@@ -64,25 +64,33 @@ export function App() {
   }, []);
 
   const refreshDashboard = useCallback(async () => {
-    try {
-      const data = await api.get<Dashboard>("/api/dashboard");
-      setDashboard(data);
-      setGoal(data.goal);
-      // The dated schedule is a separate read; a learner without a plan yet simply has none.
-      try {
-        setSchedule(await api.get<Schedule>("/api/plans/active/schedule"));
-      } catch {
-        setSchedule(null);
-      }
-      return data;
-    } catch (cause) {
+    // These reads are independent. Start them together so the schedule does not add a full
+    // network round-trip to the dashboard's critical path.
+    const [dashboardResult, scheduleResult] = await Promise.allSettled([
+      api.get<Dashboard>("/api/dashboard"),
+      api.get<Schedule>("/api/plans/active/schedule"),
+    ]);
+
+    if (scheduleResult.status === "fulfilled") {
+      setSchedule(scheduleResult.value);
+    } else {
+      setSchedule(null);
+    }
+
+    if (dashboardResult.status === "rejected") {
       // An expired session is handled once, by the `onUnauthorized` listener below; every other
       // failure belongs in the banner rather than in an unhandled promise rejection.
+      const cause = dashboardResult.reason;
       if (!(cause instanceof ApiError && cause.status === 401)) {
         setError(cause instanceof Error ? cause.message : "Unexpected error");
       }
       return null;
     }
+
+    const data = dashboardResult.value;
+    setDashboard(data);
+    setGoal(data.goal);
+    return data;
   }, []);
 
   useEffect(() => {
@@ -90,14 +98,24 @@ export function App() {
       try {
         const current = await api.get<Me>("/api/auth/me");
         applyMe(current);
-        await refreshDashboard();
-        const activePlan = await api.get<Plan | null>("/api/plans/active");
-        setPlan(activePlan);
-        try {
-          setAiStatus(await api.get<AiStatus>("/api/health/ai"));
-        } catch {
-          setAiStatus({ ai_enabled: false });
-        }
+
+        // Once the session is known, dashboard, plan and AI availability are independent reads.
+        // Run them concurrently so a slow optional health check cannot delay the other requests.
+        const planRequest = api
+          .get<Plan | null>("/api/plans/active")
+          .then(setPlan)
+          .catch((cause: unknown) => {
+            setPlan(null);
+            if (!(cause instanceof ApiError && cause.status === 401)) {
+              setError(cause instanceof Error ? cause.message : "Unexpected error");
+            }
+          });
+        const aiStatusRequest = api
+          .get<AiStatus>("/api/health/ai")
+          .then(setAiStatus)
+          .catch(() => setAiStatus({ ai_enabled: false }));
+
+        await Promise.all([refreshDashboard(), planRequest, aiStatusRequest]);
       } catch (cause) {
         if (!(cause instanceof ApiError && cause.status === 401)) {
           setError(cause instanceof Error ? cause.message : "Unexpected error");

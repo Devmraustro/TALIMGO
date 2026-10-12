@@ -292,4 +292,85 @@ describe("App shell", () => {
     expect(screen.getByRole("heading", { name: "Create your account" })).toBeInTheDocument();
     expect(screen.queryByText(/your goal, in your own words/i)).not.toBeInTheDocument();
   });
+
+  it("starts independent startup reads concurrently after session resolution", async () => {
+    const calls: string[] = [];
+    let resolveDashboard!: (response: Response) => void;
+    let rejectSchedule!: (reason?: unknown) => void;
+    const dashboardPending = new Promise<Response>((resolve) => {
+      resolveDashboard = resolve;
+    });
+    const schedulePending = new Promise<Response>((_resolve, reject) => {
+      rejectSchedule = reject;
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        calls.push(url);
+        if (url === "/api/auth/me") {
+          return Promise.resolve(
+            jsonResponse({
+              user: {
+                id: "usr_parallel",
+                email: "parallel@example.com",
+                display_name: "Learner",
+                role: "learner",
+                created_at: "2026-01-01T00:00:00Z",
+              },
+              profile: {
+                locale: "en",
+                weekly_minutes: 180,
+                availability_days: [],
+                target_date: null,
+                low_bandwidth: false,
+                reduced_motion: false,
+                onboarding_completed_at: null,
+              },
+              consents: [],
+            }),
+          );
+        }
+        if (url === "/api/dashboard") return dashboardPending;
+        if (url === "/api/plans/active/schedule") return schedulePending;
+        if (url === "/api/plans/active") return Promise.resolve(jsonResponse(null));
+        if (url === "/api/health/ai") {
+          return Promise.resolve(jsonResponse({ ai_enabled: false, policy: "local-only" }));
+        }
+        return Promise.resolve(jsonResponse({}, 404));
+      }),
+    );
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(calls).toContain("/api/dashboard");
+      expect(calls).toContain("/api/plans/active/schedule");
+      expect(calls).toContain("/api/plans/active");
+      expect(calls).toContain("/api/health/ai");
+    });
+
+    // Release the deliberately delayed requests so the test also exercises completion handling.
+    resolveDashboard(
+      jsonResponse({
+        goal: null,
+        next_action: {
+          kind: "idle",
+          title: "Define your learning goal",
+          objective_id: null,
+          lesson_id: null,
+          plan_item_id: null,
+          est_minutes: 3,
+          rationale: "TALIMGO plans from a goal.",
+          evidence_basis: "No active goal on this account.",
+        },
+        mastery_summary: {},
+        recent_evidence: [],
+        blockers: [],
+      }),
+    );
+    rejectSchedule(new Error("No active schedule"));
+    expect(await screen.findByRole("heading", { name: "What do you want to be able to do?" })).toBeInTheDocument();
+  });
+
 });
