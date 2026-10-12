@@ -14,12 +14,16 @@
 # It refuses to write anywhere that is not an explicit, non-system absolute path, refuses to run when
 # the target's parent does not exist, and never touches anything outside `<target>` and its siblings.
 #
+# The target must be the directory the proxy serves: the Nginx example's `root`, /srv/talimgo/frontend/dist.
+# The contents of frontend/dist are published directly into it, so a target one level up would leave the
+# document outside the served path and every request would fail.
+#
 # Usage:
-#   deploy/stage-frontend.sh --target /srv/talimgo/frontend [--dist frontend/dist] [--skip-build] [--dry-run]
+#   deploy/stage-frontend.sh --target /srv/talimgo/frontend/dist [--dist frontend/dist] [--skip-build] [--dry-run]
 #
 # Roll back (the previous release is a directory next to the target):
-#   mv /srv/talimgo/frontend        /srv/talimgo/frontend.failed
-#   mv /srv/talimgo/frontend.previous /srv/talimgo/frontend
+#   mv /srv/talimgo/frontend/dist            /srv/talimgo/frontend/dist.failed
+#   mv /srv/talimgo/frontend/dist.previous   /srv/talimgo/frontend/dist
 # Nginx serves static files from disk, so no reload is needed; only clear the browser cache if the
 # asset filenames did not change.
 
@@ -50,7 +54,7 @@ done
 say() { echo "stage-frontend: $*"; }
 fail() { echo "stage-frontend: refusing to run: $*" >&2; exit 1; }
 
-[ -n "$TARGET" ] || fail "--target is required (for example --target /srv/talimgo/frontend)"
+[ -n "$TARGET" ] || fail "--target is required (for example --target /srv/talimgo/frontend/dist)"
 case "$TARGET" in
   /*) ;;
   *) fail "--target must be an absolute path, got '$TARGET'" ;;
@@ -110,4 +114,4 @@ say "staged $(find "$TARGET" -type f | wc -l | tr -d ' ') file(s) into $TARGET"
 if [ "$KEEP_PREVIOUS" = "1" ] && [ -d "$TARGET.previous" ]; then
   say "rollback: mv '$TARGET' '$TARGET.failed' && mv '$TARGET.previous' '$TARGET'"
 fi
-say "done — serve '$TARGET' (the deployment guide's Nginx example uses /srv/talimgo/frontend/dist)"
+say "done — serve '$TARGET' (must equal the proxy's root; the Nginx example uses /srv/talimgo/frontend/dist)"

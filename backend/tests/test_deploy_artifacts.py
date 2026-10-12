@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import http.server
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -142,6 +143,32 @@ def test_maintenance_is_a_separate_oneshot_with_its_own_timer(tmp_path) -> None:
     timer = unit_directives(MAINTENANCE_TIMER)
     assert timer["OnCalendar"][0].startswith("*-*-*")
     assert timer["Persistent"][0] == "true", "a missed run must not be skipped silently"
+
+
+def test_the_documented_release_target_is_the_directory_the_proxy_serves() -> None:
+    """The release procedure and the Nginx example must name the same directory.
+
+    The staging script publishes the *contents* of frontend/dist, so a target one level above the
+    proxy's `root` leaves the document outside the served path and every request fails. That is what the
+    first draft of the guide did; this test keeps the two artifacts in agreement.
+
+    The mismatch is also reproduced end to end against a real Nginx in this round's rehearsal: staging
+    to the parent directory made the edge answer 500/404 while the file sat one level up.
+    """
+    nginx = (REPOSITORY_ROOT / "deploy" / "nginx" / "talimgo.conf.example").read_text()
+    roots = re.findall(r"^\s*root\s+([^;]+);", nginx, flags=re.MULTILINE)
+    served = [root.strip() for root in roots if "certbot" not in root]
+    assert len(served) == 1, f"expected exactly one served root in the example, found {served}"
+
+    guide = (REPOSITORY_ROOT / "docs" / "DEPLOYMENT.md").read_text()
+    command = re.search(r"stage-frontend\.sh --target (\S+)", guide)
+    assert command is not None, "the release procedure must show a staging command"
+    assert command.group(1) == served[0], (
+        f"the guide stages into {command.group(1)} but the proxy serves {served[0]}"
+    )
+
+    script = (DEPLOY / "stage-frontend.sh").read_text()
+    assert served[0] in script, "the script's own usage text must name the served directory"
 
 
 def test_the_maintenance_timer_is_named_after_its_unit() -> None:

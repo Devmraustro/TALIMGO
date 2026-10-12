@@ -26,10 +26,35 @@ def run_alembic(env: dict[str, str], *arguments: str) -> None:
     subprocess.run([sys.executable, "-m", "alembic", *arguments], check=True, env=env)
 
 
+def require_empty_database(database_url: str) -> None:
+    """Refuse to touch a database that already carries a schema.
+
+    The module docstring requires an empty target, and that requirement is a safety property rather than
+    tidiness: `alembic upgrade <previous revision>` *downgrades* a database that is already at head, so
+    running this against a populated database would rewrite it — and would then fail confusingly on the
+    legacy insert. Checked before Alembic runs, never after.
+    """
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            existing = connection.execute(
+                text("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+            ).scalar_one()
+    finally:
+        engine.dispose()
+    if existing:
+        raise SystemExit(
+            f"Refusing to run: this rehearsal needs an empty database, but the target already has "
+            f"{existing} table(s) in the public schema. Create a fresh database and point "
+            "TALIMGO_DATABASE_URL at it."
+        )
+
+
 def main() -> None:
     database_url = os.environ.get("TALIMGO_DATABASE_URL", "")
     if not database_url.startswith("postgresql+psycopg://"):
         raise SystemExit("Refusing to run: TALIMGO_DATABASE_URL must target PostgreSQL via psycopg.")
+    require_empty_database(database_url)
 
     env = os.environ.copy()
     env.setdefault("TALIMGO_ENV", "test")

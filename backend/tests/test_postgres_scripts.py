@@ -175,3 +175,83 @@ def test_a_successful_rehearsal_drops_the_scratch_database(
     backup_restore.main()
     assert [call[0] for call in calls] == ["pg_dump", "dropdb", "createdb", "pg_restore", "dropdb"]
     assert "backup/restore passed" in capsys.readouterr().out
+
+
+class _FakeResult:
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def scalar_one(self) -> int:
+        return self._count
+
+
+class _FakeConnection:
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def execute(self, *_args: object, **_kwargs: object) -> _FakeResult:
+        return _FakeResult(self._count)
+
+    def __enter__(self) -> _FakeConnection:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        return None
+
+
+class _FakeEngine:
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def connect(self) -> _FakeConnection:
+        return _FakeConnection(self._count)
+
+    def dispose(self) -> None:
+        return None
+
+
+@pytest.fixture
+def legacy_migration() -> types.ModuleType:
+    return load_script("postgres_legacy_migration")
+
+
+def test_legacy_migration_refuses_a_database_that_is_not_empty(
+    legacy_migration: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The target must be empty: `upgrade <previous revision>` would *downgrade* a populated database.
+
+    Without this guard the rehearsal silently rewrites a database that already has a schema (and then
+    fails on the legacy insert with a NotNullViolation that looks like a migration defect). Alembic must
+    never be reached in that case.
+    """
+    monkeypatch.setenv("TALIMGO_DATABASE_URL", VALID_URL)
+    monkeypatch.setattr(legacy_migration, "create_engine", lambda *_a, **_k: _FakeEngine(23))
+
+    def should_not_run(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("Alembic must not be invoked on a database that is not empty")
+
+    monkeypatch.setattr(legacy_migration, "run_alembic", should_not_run)
+
+    with pytest.raises(SystemExit) as refused:
+        legacy_migration.main()
+    assert "needs an empty database" in str(refused.value)
+
+
+def test_legacy_migration_proceeds_on_an_empty_database(
+    legacy_migration: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty database passes the guard and reaches the rehearsal (which is then stubbed out)."""
+    monkeypatch.setenv("TALIMGO_DATABASE_URL", VALID_URL)
+    monkeypatch.setattr(legacy_migration, "create_engine", lambda *_a, **_k: _FakeEngine(0))
+    calls: list[tuple[str, ...]] = []
+
+    def stop_after_alembic(env: dict, *arguments: str) -> None:
+        calls.append(arguments)
+        raise SystemExit("stub reached Alembic")
+
+    monkeypatch.setattr(legacy_migration, "run_alembic", stop_after_alembic)
+
+    with pytest.raises(SystemExit) as stopped:
+        legacy_migration.main()
+    assert "stub reached Alembic" in str(stopped.value)
+    assert calls and calls[0] == ("upgrade", legacy_migration.LEGACY_REVISION)
