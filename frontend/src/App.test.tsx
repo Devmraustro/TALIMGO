@@ -88,8 +88,10 @@ describe("App shell", () => {
             }),
           );
         }
-        if (url === "/api/plans/active") return planPending;
-        if (url === "/api/health/ai") return aiPending;
+        if (url === "/api/plans/active") return Promise.resolve(jsonResponse(null));
+        if (url === "/api/health/ai") {
+          return Promise.resolve(jsonResponse({ ai_enabled: false, policy: "local-only" }));
+        }
         return Promise.resolve(jsonResponse({}, 404));
       }),
     );
@@ -339,10 +341,8 @@ describe("App shell", () => {
         }
         if (url === "/api/dashboard") return dashboardPending;
         if (url === "/api/plans/active/schedule") return schedulePending;
-        if (url === "/api/plans/active") return Promise.resolve(jsonResponse(null));
-        if (url === "/api/health/ai") {
-          return Promise.resolve(jsonResponse({ ai_enabled: false, policy: "local-only" }));
-        }
+        if (url === "/api/plans/active") return planPending;
+        if (url === "/api/health/ai") return aiPending;
         return Promise.resolve(jsonResponse({}, 404));
       }),
     );
