@@ -64,33 +64,26 @@ export function App() {
   }, []);
 
   const refreshDashboard = useCallback(async () => {
-    // These reads are independent. Start them together so the schedule does not add a full
-    // network round-trip to the dashboard's critical path.
-    const [dashboardResult, scheduleResult] = await Promise.allSettled([
-      api.get<Dashboard>("/api/dashboard"),
-      api.get<Schedule>("/api/plans/active/schedule"),
-    ]);
+    // The schedule is useful secondary context, but it must not hold the dashboard hostage on a
+    // slow connection. Start the request immediately and let it update independently.
+    void api
+      .get<Schedule>("/api/plans/active/schedule")
+      .then(setSchedule)
+      .catch(() => setSchedule(null));
 
-    if (scheduleResult.status === "fulfilled") {
-      setSchedule(scheduleResult.value);
-    } else {
-      setSchedule(null);
-    }
-
-    if (dashboardResult.status === "rejected") {
+    try {
+      const data = await api.get<Dashboard>("/api/dashboard");
+      setDashboard(data);
+      setGoal(data.goal);
+      return data;
+    } catch (cause) {
       // An expired session is handled once, by the `onUnauthorized` listener below; every other
       // failure belongs in the banner rather than in an unhandled promise rejection.
-      const cause = dashboardResult.reason;
       if (!(cause instanceof ApiError && cause.status === 401)) {
         setError(cause instanceof Error ? cause.message : "Unexpected error");
       }
       return null;
     }
-
-    const data = dashboardResult.value;
-    setDashboard(data);
-    setGoal(data.goal);
-    return data;
   }, []);
 
   useEffect(() => {
@@ -99,9 +92,9 @@ export function App() {
         const current = await api.get<Me>("/api/auth/me");
         applyMe(current);
 
-        // Once the session is known, dashboard, plan and AI availability are independent reads.
-        // Run them concurrently so a slow optional health check cannot delay the other requests.
-        const planRequest = api
+        // Load the dashboard first. Plan and AI health are useful secondary reads and update
+        // the UI independently, so neither can delay the first usable screen.
+        void api
           .get<Plan | null>("/api/plans/active")
           .then(setPlan)
           .catch((cause: unknown) => {
@@ -110,12 +103,12 @@ export function App() {
               setError(cause instanceof Error ? cause.message : "Unexpected error");
             }
           });
-        const aiStatusRequest = api
+        void api
           .get<AiStatus>("/api/health/ai")
           .then(setAiStatus)
           .catch(() => setAiStatus({ ai_enabled: false }));
 
-        await Promise.all([refreshDashboard(), planRequest, aiStatusRequest]);
+        await refreshDashboard();
       } catch (cause) {
         if (!(cause instanceof ApiError && cause.status === 401)) {
           setError(cause instanceof Error ? cause.message : "Unexpected error");

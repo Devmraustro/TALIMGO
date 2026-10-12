@@ -88,10 +88,8 @@ describe("App shell", () => {
             }),
           );
         }
-        if (url === "/api/plans/active") return Promise.resolve(jsonResponse(null));
-        if (url === "/api/health/ai") {
-          return Promise.resolve(jsonResponse({ ai_enabled: false, policy: "local-only" }));
-        }
+        if (url === "/api/plans/active") return planPending;
+        if (url === "/api/health/ai") return aiPending;
         return Promise.resolve(jsonResponse({}, 404));
       }),
     );
@@ -297,11 +295,19 @@ describe("App shell", () => {
     const calls: string[] = [];
     let resolveDashboard!: (response: Response) => void;
     let rejectSchedule!: (reason?: unknown) => void;
+    let resolvePlan!: (response: Response) => void;
+    let resolveAi!: (response: Response) => void;
     const dashboardPending = new Promise<Response>((resolve) => {
       resolveDashboard = resolve;
     });
     const schedulePending = new Promise<Response>((_resolve, reject) => {
       rejectSchedule = reject;
+    });
+    const planPending = new Promise<Response>((resolve) => {
+      resolvePlan = resolve;
+    });
+    const aiPending = new Promise<Response>((resolve) => {
+      resolveAi = resolve;
     });
 
     vi.stubGlobal(
@@ -350,7 +356,7 @@ describe("App shell", () => {
       expect(calls).toContain("/api/health/ai");
     });
 
-    // Release the deliberately delayed requests so the test also exercises completion handling.
+    // The main dashboard should render even while schedule, plan and AI-health remain pending.
     resolveDashboard(
       jsonResponse({
         goal: null,
@@ -369,8 +375,12 @@ describe("App shell", () => {
         blockers: [],
       }),
     );
-    rejectSchedule(new Error("No active schedule"));
     expect(await screen.findByRole("heading", { name: "What do you want to be able to do?" })).toBeInTheDocument();
+
+    // Complete all pending requests to avoid leaking work beyond this test.
+    resolvePlan(jsonResponse(null));
+    resolveAi(jsonResponse({ ai_enabled: false, policy: "local-only" }));
+    rejectSchedule(new Error("No active schedule"));
   });
 
 });
