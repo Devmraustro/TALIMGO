@@ -204,7 +204,7 @@ export function App() {
         <div className="brand">
           TALIMGO<span>{t("app.tagline")}</span>
         </div>
-        <nav aria-label="Sections">
+        <nav aria-label={t("nav.sections")}>
           {(["dashboard", "plan", "practice", "progress", "settings"] as View[]).map((target) => (
             <button
               key={target}

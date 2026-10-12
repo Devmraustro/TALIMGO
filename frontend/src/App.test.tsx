@@ -101,6 +101,7 @@ describe("App shell", () => {
     expect(await screen.findByText("Variables, values and types")).toBeInTheDocument();
     expect(screen.getByText("It is the next unfinished step in your plan.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /start practising/i })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Sections" })).toBeInTheDocument();
   });
 
   it("asks for a goal when the learner has none", async () => {
@@ -180,6 +181,7 @@ describe("App shell", () => {
       expect(document.documentElement.dir).toBe("rtl");
     });
     expect(document.documentElement.lang).toBe("ar");
+    expect(screen.getByRole("navigation", { name: "الأقسام" })).toBeInTheDocument();
   });
 
   it("returns the learner to sign-in when the session expires mid-use", async () => {

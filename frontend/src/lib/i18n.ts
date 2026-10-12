@@ -18,6 +18,7 @@ const strings = {
   en: {
     "app.tagline": "Learn with a plan, not a playlist",
     "nav.dashboard": "Today",
+    "nav.sections": "Sections",
     "nav.plan": "Roadmap",
     "nav.progress": "Progress",
     "nav.settings": "Settings",
@@ -129,6 +130,7 @@ const strings = {
   ar: {
     "app.tagline": "تعلّم بخطة، لا بقائمة تشغيل",
     "nav.dashboard": "اليوم",
+    "nav.sections": "الأقسام",
     "nav.plan": "خارطة الطريق",
     "nav.progress": "التقدّم",
     "nav.settings": "الإعدادات",

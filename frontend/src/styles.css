@@ -384,3 +384,44 @@ html[data-reduced-motion="true"] * {
   animation-duration: 0.001ms !important;
   transition-duration: 0.001ms !important;
 }
+
+/* Navigation stays legible and comfortably tappable on narrow screens. */
+header.site nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+header.site nav button {
+  min-height: 2.75rem;
+}
+
+@media (max-width: 38rem) {
+  .app-shell {
+    padding-inline: var(--space-3);
+  }
+
+  header.site {
+    align-items: stretch;
+  }
+
+  header.site nav {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  header.site nav button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  header.site nav button:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .card {
+    padding: var(--space-4);
+  }
+}
