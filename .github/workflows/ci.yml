@@ -256,6 +256,8 @@ jobs:
         run: npm run typecheck
       - name: Build
         run: npm run build
+      - name: Check the built artifact (same-origin assets, no local or insecure host)
+        run: node scripts/check-bundle.mjs
       - name: Tests (the live-stack UI smoke test self-skips here)
         run: npm test -- --run
 
