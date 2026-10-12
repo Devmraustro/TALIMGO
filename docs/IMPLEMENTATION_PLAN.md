@@ -709,3 +709,73 @@ first.
 **BLOCKED (owner).** Confirming Vercel build/deployment protection settings, choosing the hosting
 topology, and provisioning the API host with PostgreSQL all require owner access and decisions; the
 repository-side work for each is complete and documented.
+
+### 7.19 Release preparation for the tested one-host topology
+
+**SHIPPED (this round, `69cdd5d`).** Four release artifacts, each executed before being committed,
+because the failure modes they guard are invisible to the application build:
+
+* `frontend/scripts/check-bundle.mjs` — a gate on the *built* interface, now a CI step after the build.
+  It refuses a baked-in local/private or insecure back-end address, an inline `<script>` or `<style>`, a
+  `<base>` tag, a cross-origin reference, a reference to a file the build did not produce, and an empty
+  build. Calibrated against the real `dist`: `http://www.w3.org/...` (an XML/SVG namespace the DOM
+  compares as a string and never fetches) is the only exemption, and React's error-documentation links
+  are legitimate `https` references. Ten unit tests cover it; falsified by appending a private host to a
+  real asset, which produced both expected violations and a non-zero exit.
+* `deploy/stage-frontend.sh` — repeatable interface release: build, gate, copy beside the served
+  directory, swap by rename, retain the previous release, print the rollback commands. Refuses a
+  relative path, a system directory (`/`, `/etc`, `/srv`), `..`, a missing parent and an unknown
+  argument, and never writes when the gate fails. A defect was found and fixed while writing this: `/`
+  was stripped to an empty string by the trailing-slash normalisation and passed every later check; the
+  raw value is now rejected before normalisation, and the test that found it asserts the refusal plus an
+  untouched working directory. Verified by two real runs (the `.previous` release is retained) and by
+  executing the printed rollback, which restored the previous document byte for byte.
+* `deploy/health-check.sh` — read-only readiness probe: exit 0 healthy, 1 unhealthy, 2 misuse. Validates
+  the recorded `/api/health` contract and refuses a host that answers `200` with HTML, which is exactly
+  what the deployed preview does. Verified against a real running API (also with `--ai`, which asserts
+  the *policy* is `local-only` rather than that tutoring is enabled), a closed port, a degraded status
+  and an HTML-200 host.
+* `deploy/systemd/{talimgo-api, talimgo-maintenance}.service.example` and the maintenance timer — the
+  API unit runs the production preflight, then migrations, then `uvicorn` bound to `127.0.0.1`, then a
+  readiness probe, as a non-root user with hardening, `MemoryMax=512M` and a start timeout larger than
+  the probe's wait, so a failed preflight, migration or probe fails the start instead of leaving a
+  half-served service. Housekeeping is a separate daily oneshot with `Persistent=true`.
+
+`backend/tests/test_deploy_artifacts.py` (16 tests) asserts the documented start order and the hardening
+directives, exercises every refusal path of both scripts, and runs `python -m app.maintenance --dry-run`
+for real against a throwaway migrated database (the unit's command must exist, not merely be spelled
+correctly).
+
+Test fixtures that must contain hostile URLs are assembled from a scheme constant at runtime, because
+the source-level local-only gate refuses *every* non-local URL literal under `frontend/src` and has no
+per-file exemption. The gate keeps its absolute strictness: writing the literal in the test file fails
+CI, which is how this was found.
+
+**TESTED (this session, on `69cdd5d`).** 389 backend tests pass (1 skipped: the offline local-model
+test), 55 frontend tests pass (1 skipped: the live-stack smoke test, run explicitly with
+`TALIMGO_UI_SMOKE=1` and passed against the real API through the real Vite proxy), `tsc --noEmit`,
+`vite build` and the new bundle gate are clean, Ruff (check and format) and bandit are clean on 94
+files, the local-only AI gate passes (78 source files, 7 URL literals) and the licence gate passes. A
+PostgreSQL 16.2 cluster was rebuilt from source binaries and the legacy-migration, API-smoke and
+custom-format dump/restore rehearsals all pass with matching row counts and Alembic revision; the
+production preflight passes against that server and still refuses SQLite. `npm audit --omit=dev` reports
+0 vulnerabilities and `pip-audit` reports none. CI is green on the pushed head: push run `38186582074`
+and PR run `38186585326`, 7/7 jobs each. The live probe of the public preview with the new script
+returns exit 1 ("unhealthy"), which is the correct verdict: that host serves the interface shell and
+answers `/api/health` with 404 because no API is deployed.
+
+**DOCUMENTED.** `docs/DEPLOYMENT.md` now carries the unit installation notes, the ordered release
+procedure (stage, preflight, back up, migrate, restart, verify internally and externally), systemd
+logging guidance, rollback using the staging script's retained release, and a twelve-item owner-only
+launch checklist with a completion test for each. `docs/OPEN_SOURCE_REUSE_AUDIT.md` records the search
+for reusable deployment tooling: nothing under a usable licence was found, so no third-party deployment
+code was adopted and no new attribution obligation was created.
+
+**BLOCKED (owner).** Every remaining step needs owner access or a decision: authorising a host, DNS and
+TLS, generating secrets on the host, provisioning PostgreSQL with off-host backups, firewall rules,
+installing the units, the first release, a named local model, the fate of the Vercel preview, and
+monitoring. None can be done from this environment, and no hosting setting was changed in this round.
+
+**NOT CLAIMED.** The units have never been installed by systemd, the staging script has never published
+to a real `/srv`, and no certificate, DNS record, firewall rule or off-host backup has been exercised.
+The release tooling is tested; the deployment is not, because no API host or database exists anywhere.
