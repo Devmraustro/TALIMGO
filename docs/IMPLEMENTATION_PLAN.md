@@ -779,3 +779,69 @@ monitoring. None can be done from this environment, and no hosting setting was c
 **NOT CLAIMED.** The units have never been installed by systemd, the staging script has never published
 to a real `/srv`, and no certificate, DNS record, firewall rule or off-host backup has been exercised.
 The release tooling is tested; the deployment is not, because no API host or database exists anywhere.
+
+### 7.20 Release rehearsal against the real edge, and two defects it found
+
+**SHIPPED (2026-10-12).** The recommended topology was rehearsed end to end for the first time in one
+piece: a locally built Nginx 1.24.0 (static PCRE2 10.44, OpenSSL 3.0.16, zlib 1.3.1) serving the bundle
+staged by `deploy/stage-frontend.sh`, proxying `/api` to the API running in **production mode**
+(`TALIMGO_ENV=production`) against **PostgreSQL 16.2**, with the post-deployment verifier driving it.
+
+**Two defects were found and fixed.**
+
+1. **The release procedure staged into the wrong directory.** The Nginx example serves
+   `root /srv/talimgo/frontend/dist`, but the guide's release command was
+   `deploy/stage-frontend.sh --target /srv/talimgo/frontend`, and the script publishes the *contents* of
+   `frontend/dist`. Following the documentation would therefore have left the document one directory
+   above the served path. Reproduced against the real edge: with the documented target, a request for
+   `/` returned **500** (and 404 for the document itself) while `index.html` sat one level up. Fixed by
+   pointing the procedure (and the script's usage text) at the directory the proxy serves, and locked
+   with a test that reads the example's `root` directive and the guide's command and fails when they
+   disagree — verified to fail on the old command and pass on the new one.
+2. **The legacy-migration rehearsal could rewrite a database it does not own.** Its docstring requires an
+   empty target, but nothing enforced that: `alembic upgrade 8f1c2d4e6a70` *downgrades* a database that is
+   already at head, so pointing it at a populated database silently rewrote it and then failed with a
+   `NotNullViolation` from the legacy insert that reads like a migration defect (this happened during the
+   rehearsal above). It now checks `information_schema.tables` **before** Alembic runs and refuses with
+   "this rehearsal needs an empty database", covered by two tests (refusal, and that an empty database
+   still reaches the rehearsal).
+
+**TESTED (this session, on the release tooling plus these fixes).**
+
+* Edge + production API: HTTP→HTTPS **301** with path and query intact; the staged document **200** with
+  `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`,
+  `Permissions-Policy` and the `default-src 'self'` CSP; `/api/health` **200** through the proxy;
+  `/api/docs` **404** in production; the edge's own burst refusal **429** with a JSON `detail` body (seven
+  immediate `/api/auth/` requests); the disposable-account lifecycle closed with **0 rows** left in
+  `users`, `goals` and `sessions` afterwards.
+* **`scripts/verify_deployment.py`: 13/13 PASS** against `https://localhost:8443` with `--host localhost
+  --http-port 8080 --insecure-tls` — its first execution against a real edge *and* a real production-mode
+  API at once (previously the two were verified separately).
+* 392 backend tests pass (1 skipped: the offline local-model test); 55 frontend tests pass (1 skipped:
+  the live-stack smoke test, which was then run explicitly with `TALIMGO_UI_SMOKE=1` against the running
+  production-mode API and passed); `tsc --noEmit`, `vite build` and the bundle gate are clean; Ruff and
+  bandit are clean on 94 files; the local-only AI gate passes (78 files) and the licence gate passes;
+  `pip-audit` and `npm audit --omit=dev` report no known vulnerabilities.
+* PostgreSQL rehearsals re-run on the rebuilt PostgreSQL 16.2: populated-legacy migration (on a fresh
+  database, as required), API smoke, and custom-format dump/restore with matching row counts and
+  revision all pass.
+
+**Harness deviations (recorded so nothing is overstated).** The rehearsal copy of the Nginx example
+differs from the shipped file in exactly these ways: `server_name localhost`, ports **8080/8443**
+(privileged 80/443 cannot be bound without root), paths under `/tmp/edge`, a local certificate, and — for
+the same port reason — the redirect target carrying `:8443`, since the shipped `return 301
+https://$server_name$request_uri` is correct for 443. Every policy-relevant line is byte-identical.
+The browser/axe job could not run here (no browser binaries in this sandbox; the download is blocked), so
+that remains CI-only evidence.
+
+**DOCUMENTED.** `docs/DEPLOYMENT.md` now shows the corrected release target with the reason, documents the
+sub-millisecond swap window between the two renames (and the symlink alternative), and states the
+empty-database requirement of the legacy rehearsal and why it is enforced. `docs/VERCEL_DEPLOYMENT_STATUS.md`
+carries a dated 2026-10-12 re-check and a corrected statement about the deployed bundle: it corresponds to
+`fa421ab` and is **stale** relative to this branch, which is why the live banner still reads
+`Request failed (404).`
+
+**NOT CLAIMED.** No production host, domain, certificate, firewall or off-host backup exists; nothing was
+deployed, and the alias was neither redeployed nor reconfigured. The rehearsal used self-signed TLS on
+non-privileged ports against PostgreSQL on loopback, so it verifies the configuration and the code path,
+not a real internet-facing deployment.

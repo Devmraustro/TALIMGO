@@ -78,8 +78,12 @@ automatically in production (`/api/docs`, `/api/openapi.json` return 404).
   dedicated populated-legacy-data rehearsal: it creates an account, goal, plan, week and plan item
   under revision `8f1c2d4e6a70`, upgrades to head, and verifies the plan's `starts_on` is backfilled
   to the database's current date, is non-nullable, and that the existing plan item survives with its
-  optional schedule fields null. The API smoke test then checks account/session creation and goal
-  write/read. The full API behaviour suite still uses per-test SQLite databases, so this is not a
+  optional schedule fields null. **That rehearsal requires an empty database** and now refuses one that
+  already has tables in `public`: `alembic upgrade <previous revision>` would otherwise *downgrade* a
+  database already at head and rewrite it. Point `TALIMGO_DATABASE_URL` at a fresh database to run it;
+  a populated one is refused with that sentence rather than failing halfway on the legacy insert.
+  The API smoke test then checks account/session creation and goal write/read. The full API behaviour
+  suite still uses per-test SQLite databases, so this is not a
   claim of complete PostgreSQL parity. Before production, rehearse backup/restore against the target
   PostgreSQL version and run the full pilot acceptance checklist.
 * The AI usage counter uses a conditional `UPDATE ... WHERE count < limit` (atomic per row on both
@@ -385,10 +389,14 @@ Run these in order, from the release checkout. Every step is a command that exis
 nothing here is a script you have to write on the host.
 
 ```bash
-# 1. Interface: build, gate the artifact, stage it beside the served directory.
+# 1. Interface: build, gate the artifact, stage it as the served directory.
 #    The gate refuses a bundle containing an insecure or local/private back-end address, and the
 #    staging step swaps the release in with renames, keeping the previous one for rollback.
-deploy/stage-frontend.sh --target /srv/talimgo/frontend
+#    The target must be the directory the proxy serves — the Nginx example's `root`, which is
+#    /srv/talimgo/frontend/dist. The script publishes the *contents* of frontend/dist, so staging to
+#    /srv/talimgo/frontend instead would leave the document one directory above the served path and
+#    every request would fail; a test asserts this target still matches the example's `root`.
+deploy/stage-frontend.sh --target /srv/talimgo/frontend/dist
 
 # 2. API configuration: the preflight reads the production environment and prints names, not values.
 cd backend && .venv/bin/python scripts/check_production_config.py
@@ -412,6 +420,16 @@ creates an account, so it is safe in a supervisor, a timer or a monitoring agent
 healthy, 1 unhealthy, 2 called wrongly. Bare `GET /api/health` wiring is acceptable for a load
 balancer, but it will also accept a static host answering `200` with HTML — the script rejects that,
 which is why it is the check to use for "is TALIMGO really up".
+
+### The swap window (one host, no load balancer)
+
+The staging step publishes with two renames: the current release becomes `<target>.previous`, then the
+staged copy becomes `<target>`. Between those two renames the served path does not exist, so a request
+arriving in that window fails — microseconds to a few milliseconds on a local filesystem, but real. A
+first release has no window at all, because there is nothing to move aside. If a window is unacceptable
+for your traffic, serve through a symlink (`root /srv/talimgo/current;`) and repoint it with `ln -sfn`,
+which is atomic; the repository's staging script keeps the simpler directory-swap form because it needs
+no extra indirection to reason about and the rollback commands it prints stay correct either way.
 
 ### Logging on a systemd host
 

@@ -1,15 +1,30 @@
 # Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-11** (re-checked at the end of the release-preparation round). This file records
-what was actually observed about the Vercel deployment from outside, what it can and cannot do, and the
-exact owner actions that remain. It is a snapshot: re-verify before relying on it.
+Status date: **2026-10-12** (re-checked for a second time; the two earlier checks are recorded below).
+This file records what was actually observed about the Vercel deployment from outside, what it can and
+cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
-**Nothing on the Vercel side was changed in either round.** No project setting, deployment, alias,
-domain or environment variable was touched through any API or dashboard: the observations below come
-from fetching the public URLs, and no Vercel credential was used because none is available to this
-session. The re-check confirmed the same state as before — the alias serves the interface shell, the
-bundle it serves still shows `Request failed (404).` for its boot call (so it predates the messaging fix
-in this branch), and `/api/health` on that host is still Vercel's 404 page.
+**Nothing on the Vercel side was changed in any round.** No project setting, deployment, alias, domain
+or environment variable was touched through any API or dashboard: the observations below come from
+fetching the public URLs, and no Vercel credential was used because none is available to this session.
+
+### 2026-10-12 re-check (unchanged)
+
+| URL | Observed |
+| --- | --- |
+| `https://talimgo-preview.vercel.app/` | **200**, interface shell renders, banner reads `Request failed (404).` |
+| `https://talimgo-preview.vercel.app/api/auth/me` | **404** — Vercel's `NOT_FOUND` page, i.e. the static host answers, no API is behind it |
+| `https://talimgo-preview.vercel.app/api/health` | **404** — same (checked in the previous round; the pattern is unchanged) |
+
+The bare `Request failed (404).` string is itself evidence about *which* bundle is deployed: the current
+branch reports a non-JSON API answer as "TALIMGO's API did not answer this request", and this host does
+not say that. The deployed bundle therefore still predates that fix, exactly as in the previous round.
+`deploy/health-check.sh` was also pointed at this host and returned **exit 1 ("unhealthy")**, which is
+the correct verdict: it refuses a host that answers `200` with HTML instead of the recorded
+`/api/health` contract.
+
+Response headers remain unmeasurable from this environment (no TCP egress to `vercel.app`, and no Vercel
+connector), so no header claim is made for this host in either direction.
 
 ## What exists
 
@@ -22,8 +37,12 @@ in this branch), and `/api/health` on that host is still Vercel's 404 page.
 | Source | `Devmraustro/TALIMGO`, branch `arena/c22f9408-talimgo`, commit `fa421ab` |
 | Framework / root | Vite, root directory `frontend`, build `npm run build`, install `npm ci`, output `dist` |
 
-The frontend source has not changed since `fa421ab` (verified with `git diff fa421ab..HEAD -- frontend/src`
-= empty), so the deployed bundle corresponds to the current interface code.
+The deployed bundle corresponds to commit `fa421ab` and is now **stale relative to this branch**: three
+shipped interface files have changed since (`frontend/src/lib/api.ts`, `frontend/src/App.tsx`,
+`frontend/src/lib/i18n.ts` — the API-failure messaging and session-expiry handling added in `7d7edb3`),
+plus `frontend/vercel.json`. That is why the live banner still reads `Request failed (404).` while the
+current source would say "TALIMGO's API did not answer this request". Nothing here implies the host was
+redeployed; the next deployment of this branch would pick the fixes up.
 
 ## What was verified, and how
 
