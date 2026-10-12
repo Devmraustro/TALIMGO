@@ -1,8 +1,15 @@
 # Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-11**. This file records what was actually observed about the Vercel deployment
-from outside, what it can and cannot do, and the exact owner actions that remain. It is a snapshot:
-re-verify before relying on it.
+Status date: **2026-10-11** (re-checked at the end of the release-preparation round). This file records
+what was actually observed about the Vercel deployment from outside, what it can and cannot do, and the
+exact owner actions that remain. It is a snapshot: re-verify before relying on it.
+
+**Nothing on the Vercel side was changed in either round.** No project setting, deployment, alias,
+domain or environment variable was touched through any API or dashboard: the observations below come
+from fetching the public URLs, and no Vercel credential was used because none is available to this
+session. The re-check confirmed the same state as before — the alias serves the interface shell, the
+bundle it serves still shows `Request failed (404).` for its boot call (so it predates the messaging fix
+in this branch), and `/api/health` on that host is still Vercel's 404 page.
 
 ## What exists
 
@@ -33,6 +40,7 @@ recorded rather than guessed at.
 | Public alias, `/today` | **404** (Vercel's page). Not a defect: the interface has no URL routes (views switch in memory), so it never requests this path. No rewrite is required |
 | Deployment protection | The **immutable** deployment URL redirects to `vercel.com/login?sso-api…` ("Protected Deployment – Vercel"), while the **public alias** is reachable without authentication. Deployment protection therefore covers the per-deployment host, not the alias |
 | Response headers of the alias | **Not verifiable** from this session (see above). `frontend/vercel.json` was added to supply the interface policy on the next deployment |
+| Release tooling for the interface | **Available in this branch** (`deploy/stage-frontend.sh`, `frontend/scripts/check-bundle.mjs`): a release must pass a gate that refuses a bundle with an insecure or local/private back-end address. The Vercel deployment predates it |
 
 ## What this means
 

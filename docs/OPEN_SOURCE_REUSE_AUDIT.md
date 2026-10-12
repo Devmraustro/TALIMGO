@@ -162,6 +162,22 @@ licence-fee terms, attribution, and the applicability of its bundled dependencie
 | FSRS (`open-spaced-repetition/ts-fsrs`, `fsrs4anki`) | MIT | Planned scheduler reference for the spaced-review milestone (not yet integrated) |
 | `litellm`, `langfuse`, `promptfoo`, `vllm` | mixed (`NOASSERTION` for two) | `vllm` (Apache-2.0) is the evaluation candidate for production local serving. `litellm`/`langfuse` are **excluded under the current policy** because a "gateway" that can route to hosted providers conflicts with the local-only rule; `promptfoo` (MIT) is a candidate for the local evaluation harness after a licence re-read |
 
+### 4.1 Deployment tooling search (2026-10-11): nothing adopted
+
+Before writing the release helpers, GitHub was searched through the API for ready-made deployment
+tooling: systemd units for `uvicorn`, health-check scripts, and atomic "deploy a built SPA through a
+symlink with rollback" scripts. Filters were applied server-side (stars, licence presence, language).
+
+**Result: nothing usable.** The only near-match was a personal server-template repository with zero
+stars and **no licence file at all**, which the standing rules exclude. Consequences, recorded honestly:
+
+* The four helpers in `deploy/` and `frontend/scripts/check-bundle.mjs` are first-party, small and
+  auditable. No third-party deployment code, unit file or script was copied, so **no new attribution or
+  licence obligation was created** by this round;
+* There is no upstream project to track, patch or upgrade for these files;
+* The search is recorded here as the evidence for the "search before adopting" rule, not as a claim that
+  no such project exists anywhere.
+
 **Rules applied to every future dependency:** read the licence file (not the badge); check transitive
 dependencies and their licences; record the version; add notices; run the dependency scan in CI; and
 record the decision here with evidence.

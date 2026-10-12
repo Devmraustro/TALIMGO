@@ -320,21 +320,29 @@ beyond trusting the certificate the runner sees.
 | Process memory/CPU | systemd/Docker | give the API a modest cap (e.g. 512 MiB); give the model runtime its own |
 | Body size and request rate | reverse proxy | see §4 |
 
-A systemd unit sketch:
+### systemd units (checked in, not sketched here)
 
-```ini
-[Service]
-EnvironmentFile=/etc/talimgo/talimgo.env
-WorkingDirectory=/srv/talimgo/backend
-ExecStartPre=/srv/talimgo/backend/.venv/bin/alembic upgrade head
-ExecStart=/srv/talimgo/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-MemoryMax=512M
-Restart=on-failure
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/var/lib/talimgo
-```
+`deploy/systemd/` holds complete, installable units rather than a fragment to be re-typed:
+
+| File | What it runs |
+|---|---|
+| `talimgo-api.service.example` | The API: preflight → migrations → `uvicorn` on `127.0.0.1:8000` → readiness probe, under a non-root user, with `Restart=on-failure`, `MemoryMax=512M` and the hardening set (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `NoNewPrivileges`, `RestrictAddressFamilies`, …) |
+| `talimgo-maintenance.service.example` | `python -m app.maintenance` as a `oneshot`, separate so housekeeping never restarts the serving process |
+| `talimgo-maintenance.timer.example` | Daily 03:30 with a randomised delay and `Persistent=true` (a run missed during downtime is not skipped silently) |
+
+Installation, start order and inspection commands are at the top of the API unit. Two properties are
+worth knowing before you install it:
+
+* **A failed preflight or migration stops the start.** `ExecStartPre` runs
+  `scripts/check_production_config.py` and then `alembic upgrade head`, so a weak secret, a wildcard
+  origin, a SQLite database or a non-local AI endpoint never becomes a running service;
+* **readiness is asserted, not assumed.** `ExecStartPost` runs `deploy/health-check.sh --wait 30`, so a
+  process that starts but cannot answer `/api/health` is reported as a failed start. `TimeoutStartSec`
+  is larger than the probe's wait for that reason.
+
+The units are examples: check the paths, user and group against your host before installing. Binding
+the API to `127.0.0.1` (as above) is what keeps it non-public; the only public entry point is the proxy
+in §4.
 
 ## 9. Data maintenance, backup and restore
 
@@ -369,10 +377,61 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 * Export: `GET /api/me/export` returns a machine-readable copy of everything held about the learner;
   exercise it as part of the pilot acceptance test.
 
-## 10. Rollback
+## 10. Release procedure and rollback
 
-1. Application: keep the previous release directory (or image tag) and switch the symlink; the API is
-   stateless apart from the database and the model runtime.
+### Ordered release (one host)
+
+Run these in order, from the release checkout. Every step is a command that exists in this repository;
+nothing here is a script you have to write on the host.
+
+```bash
+# 1. Interface: build, gate the artifact, stage it beside the served directory.
+#    The gate refuses a bundle containing an insecure or local/private back-end address, and the
+#    staging step swaps the release in with renames, keeping the previous one for rollback.
+deploy/stage-frontend.sh --target /srv/talimgo/frontend
+
+# 2. API configuration: the preflight reads the production environment and prints names, not values.
+cd backend && .venv/bin/python scripts/check_production_config.py
+
+# 3. Database: back up before a release that contains a migration, then apply migrations.
+pg_dump --format=custom --no-owner --no-acl --file ~/talimgo-pre-release.dump "$PGDATABASE"
+.venv/bin/alembic upgrade head && .venv/bin/alembic check
+
+# 4. Service: restart under the unit, which re-runs the preflight, the migrations and the readiness
+#    probe (see §8). A failed probe makes the start fail rather than leaving a half-served service.
+sudo systemctl restart talimgo-api.service
+deploy/health-check.sh --url http://127.0.0.1:8000 --wait 30 --ai
+
+# 5. From outside: verify the deployment through the real edge and TLS (disposable account, removed
+#    by the same run).
+.venv/bin/python scripts/verify_deployment.py --base-url https://<host> --host <host>
+```
+
+`deploy/health-check.sh` is deliberately read-only: it never writes, never needs credentials and never
+creates an account, so it is safe in a supervisor, a timer or a monitoring agent. Exit code 0 means
+healthy, 1 unhealthy, 2 called wrongly. Bare `GET /api/health` wiring is acceptable for a load
+balancer, but it will also accept a static host answering `200` with HTML — the script rejects that,
+which is why it is the check to use for "is TALIMGO really up".
+
+### Logging on a systemd host
+
+* `journalctl -u talimgo-api -f` follows the API; `journalctl -u talimgo-api --since '1 hour ago'` looks
+  back. `SyslogIdentifier=talimgo-api` keeps the unit's lines separable in a shared journal.
+* The application logs one structured line per event from the `talimgo` logger and never logs request
+  bodies or learner content (§7). Startup logs the environment and the local-only AI state, which is the
+  first thing to read when tutoring is disabled.
+* `uvicorn`'s own access log is off by default in the unit (access logging belongs at the proxy, which
+  already records the request line). Add `--log-level info` or `--access-log` to `ExecStart` if you want
+  it from the application too.
+* Rotate and retain the journal per your policy: `journald` limits are host configuration and are **not**
+  managed by this repository.
+
+### Rollback
+
+1. Application: `deploy/stage-frontend.sh` keeps the previous interface as `<target>.previous`; swap the
+   two directories back (the exact commands are printed at the end of a staging run). The API is
+   stateless apart from the database and the model runtime, so rolling the code back is a checkout plus
+   a `systemctl restart talimgo-api.service`.
 2. Database: migrations are additive so far, and `alembic downgrade -1` exists for every revision, but
    a downgrade that drops a column loses that column's data. Take a `pg_dump` **before** every deploy
    that includes a migration, and prefer rolling forward with a fix over rolling back.
@@ -381,7 +440,27 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 4. After any rollback: re-run `GET /api/health`, one authenticated dashboard read, one practice answer
    and the migration drift check (`alembic check`).
 
-## 11. First-deployment checklist
+## 11. Owner-only launch checklist
+
+These steps need owner access, money or a decision. Nothing in the repository can do them, and no
+deployment can be called verified until they are done and their results recorded.
+
+| # | Owner action | Done when |
+|---|---|---|
+| 1 | **Authorise the production host** (a Python-capable VM/container on TALIMGO-controlled infrastructure) | You have a hostname and SSH/service access, and you have accepted that the API and PostgreSQL are no longer local development services |
+| 2 | **DNS and TLS**: point the hostname at the host, obtain a certificate for it | `curl -I https://<host>` answers over TLS with a valid chain for that name |
+| 3 | **Create the service user and directories**: `talimgo` user, `/srv/talimgo`, `/var/lib/talimgo`, `/etc/talimgo` | `systemctl start talimgo-api` can read its code and write only where it should |
+| 4 | **Generate secrets on the host**: `TALIMGO_SESSION_SECRET` (`openssl rand -base64 48`), the PostgreSQL password, and the environment file at `/etc/talimgo/talimgo.env` (root-owned, mode 0600) | `scripts/check_production_config.py` passes on the host; no secret exists anywhere in the repository or in chat |
+| 5 | **Provision PostgreSQL**: database and role for TALIMGO, reachable only from the API host, with your backup tooling pointed at it | `alembic upgrade head` runs on the host | 
+| 6 | **Firewall/network**: 443 public, SSH restricted to the owner, PostgreSQL **not** reachable from the internet | An external port scan shows only 443 (and your SSH port) open |
+| 7 | **Install the units** from `deploy/systemd/`, enable the API service and the maintenance timer | `systemctl status talimgo-api` is active and `systemctl list-timers talimgo-maintenance` shows the next run |
+| 8 | **First release** by the procedure in §10, ending with `verify_deployment.py` against the real hostname | The verifier passes and its output is recorded (date, host, result) |
+| 9 | **Backups**: schedule `pg_dump` to storage outside the host; decide retention; rehearse a restore with `backend/scripts/postgres_backup_restore.py` against a disposable copy | A restore has been performed from a real backup, and the retention decision is written down |
+| 10 | **Local model runtime** (only when you want tutoring): provision it on TALIMGO-controlled infrastructure, evaluate it, then set `TALIMGO_AI_ENABLED=true` with a named model | `health-check.sh --ai` passes on the host, and no learner content leaves TALIMGO infrastructure |
+| 11 | **Decide the fate of the Vercel preview** (`docs/VERCEL_DEPLOYMENT_STATUS.md`): keep it as an interface preview or delete it | No preview is presented as a working product |
+| 12 | **Monitoring**: wire `deploy/health-check.sh` into your supervisor/monitoring and confirm an alert arrives when the API is stopped | You have seen a real alert from a deliberately stopped service |
+
+## 12. First-deployment checklist
 
 - [ ] `python backend/scripts/check_production_config.py` passes against the production environment.
 - [ ] PostgreSQL running; `alembic upgrade head` applied; `alembic check` clean.
@@ -392,6 +471,9 @@ backend/.venv/bin/python -m app.maintenance             # apply; safe from cron,
 - [ ] `python -m app.maintenance --dry-run` runs; production backup and restore rehearsed against off-host storage.
 - [ ] `nginx -t` succeeds with the real hostname/certificate paths; HTTP redirect, HSTS, forwarding-header trust and edge rate limits verified.
 - [ ] Interface hosting decided and the matching configuration applied: one host with Nginx, or a provider rewrite that keeps the browser same-origin (see "Where the built interface is hosted").
+- [ ] Interface released with `deploy/stage-frontend.sh` (its bundle gate passed and `<target>.previous` exists for rollback).
+- [ ] API installed from `deploy/systemd/talimgo-api.service.example`; the maintenance timer enabled and its first run inspected.
+- [ ] Release procedure in §10 followed in order, and the owner-only checklist in §11 completed.
 - [ ] No API base URL or API key is baked into the interface build; the interface was built from the current `frontend/` and served with the headers in `frontend/vercel.json` when hosted on Vercel.
 - [ ] Interface loaded in a real browser: it renders, its requests succeed, and the console reports no CSP violations (CI cannot check browser enforcement).
 - [ ] An API-generated 429 still arrives with its own message and `Retry-After` (not replaced by the edge page).
