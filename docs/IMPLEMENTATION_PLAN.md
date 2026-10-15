@@ -4,7 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-10-11.
+Last updated: 2026-10-15 (status rechecked against GitHub Actions runs on 2026-10-12).
 
 ---
 
@@ -17,10 +17,23 @@ Last updated: 2026-10-11.
 | Third-party audit of the three named candidates | IMPLEMENTED | `docs/OPEN_SOURCE_REUSE_AUDIT.md` |
 | Stack decision | CONFIRMED (owner-delegated) | `docs/adr/0001-stack-and-repository-layout.md` |
 | Local-only AI policy | CONFIRMED | `AGENTS.md` §2, `docs/adr/0002-local-ai-only.md` |
-| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | `pytest` 175 passed, 1 skipped; `ruff check app tests scripts` clean; `bandit -r app` clean; `alembic check` reports no drift — see §5 |
-| Frontend slice | TESTED | `tsc --noEmit` clean; `vitest run` 16 passed, 1 skipped; `vite build` 259 kB JS (80 kB gzip); live-stack UI smoke test passes — see §5 |
+| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | Latest verified CI on `438f759` passed the backend job, including Ruff, Bandit, migration checks, full pytest suite, and the explicit local-model skip; see [PR CI run 38245789728](https://github.com/Devmraustro/TALIMGO/actions/runs/38245789728). Exact pytest pass count is not stated in the captured summary lines. |
+| Frontend slice | TESTED | Latest CI: typecheck/build and Vitest passed (56 tests passed, 1 skipped); the bundle gate passed. The skip is the opt-in live-stack UI smoke test, which has a separate browser journey job. |
 | Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` (66 files, 3 URL literals); proven to fail on a planted violation |
-| Real local-model integration verified | BLOCKED (environment) | no local runtime installed in this sandbox; the adapter is tested against a mock local endpoint and a skip-if-unavailable offline integration test (`pytest -m local_model`), which skips with an explicit reason here |
+| Real local-model integration verified | BLOCKED (environment) | No local model runtime was configured in CI. `pytest -m local_model` explicitly skips with: `set TALIMGO_TEST_LOCAL_MODEL=1 and configure a local runtime to run this test`. Mock adapter tests do not establish real Arabic output quality, latency, throughput, or grounding quality. |
+
+---
+
+## 0.1 Latest CI evidence (2026-10-12)
+
+The current branch head verified during this status pass is `438f7597c365bdaab6cc64e01648bd27ff09b5b7`. The matching push and pull-request workflows both completed successfully with seven jobs:
+
+- [Push run 38245783903](https://github.com/Devmraustro/TALIMGO/actions/runs/38245783903)
+- [Pull-request run 38245789728](https://github.com/Devmraustro/TALIMGO/actions/runs/38245789728)
+
+The browser job ran a real Chromium journey against a locally started API and Vite server. It passed registration, goal creation, a real diagnostic-answer API request, Arabic RTL settings, mobile horizontal-overflow check, account deletion/session invalidation, same-origin network assertions, and four axe-core WCAG A/AA scans. This is automated browser evidence on a disposable CI stack, not a manual screen-reader audit or a production-host test.
+
+PostgreSQL migration/persistence and custom-format backup/restore, Nginx edge checks, frontend tests/build, backend tests/static checks, local-only AI policy, and dependency/licence audit also passed in the same CI run. The real local-model integration remains skipped because no runtime was configured.
 
 ---
 
@@ -33,7 +46,7 @@ Last updated: 2026-10-11.
 | 3 | Learning journey slice | TESTED | Goal → diagnostic → validated roadmap → dashboard next action, end to end through the API and the real interface | commit `1008a52`; `tests/test_api_journey.py`; live journey + UI smoke test (§5) |
 | 4 | Local AI tutor | TESTED (mock endpoint), BLOCKED (real runtime) | Tutor grounded in retrieved curriculum, strict JSON validated, citation allow-list, local-only enforced, explicit failure when unavailable; no fallback path exists | commit `14c0be3`; `tests/test_ai_local_only.py`, `tests/test_tutor_local.py` |
 | 5 | Learning outcomes | PARTIAL | Quizzes with deterministic grading, evidence persistence, mastery estimates, adaptive next action, confirmation checks for provisional knowledge; no project/portfolio work yet | `tests/test_grading.py`, `tests/test_mastery_model.py`, ADR 0005 |
-| 6 | Hardening | PARTIAL | Lint, static security, dependency and licence gates, migration drift check, automated a11y linting; no manual accessibility audit, no penetration test, deployment docs still to write | `ci.yml`; `scripts/check_licences.py`; `scripts/check-licences.mjs` |
+| 6 | Hardening | PARTIAL | Lint, static security, dependency/licence gates, PostgreSQL migration and backup/restore rehearsal, Nginx TLS-edge checks, Chromium browser journey and axe-core WCAG A/AA scans are automated in CI. No independent penetration test or human accessibility audit; no real public deployment, DNS/TLS issuance, off-host backup, or real local-model runtime is verified. | [CI run 38245789728](https://github.com/Devmraustro/TALIMGO/actions/runs/38245789728); `docs/DEPLOYMENT.md`; `docs/SECURITY_THREAT_MODEL.md` |
 
 Each checkpoint is developed as: define observable behaviour and tests → smallest coherent change →
 run focused tests → run lint/type/build/security → inspect the UI for UI changes → independent review
