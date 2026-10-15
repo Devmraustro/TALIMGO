@@ -1,0 +1,14 @@
+# Timer for the TALIMGO housekeeping unit: daily at 03:30, with a short randomised delay so a fleet of
+# hosts does not hit the database at the same instant. Persistent=true means a maintenance run missed
+# while the host was down is executed after the next boot instead of being skipped silently.
+
+[Unit]
+Description=Daily TALIMGO housekeeping
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,143 @@
+# Standalone Nginx example for TALIMGO.
+# Replace talimgo.example and provision its certificate before deployment.
+# Keep the FastAPI process bound to 127.0.0.1:8000; do not expose it directly.
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+error_log /var/log/nginx/talimgo-error.log warn;
+
+events {
+    worker_connections 512;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+    sendfile on;
+    keepalive_timeout 30s;
+    client_body_timeout 15s;
+    client_header_timeout 15s;
+    send_timeout 30s;
+
+    limit_req_zone $binary_remote_addr zone=talimgo_auth:10m rate=10r/m;
+    limit_req_zone $binary_remote_addr zone=talimgo_api:10m rate=60r/m;
+    limit_req_status 429;
+
+    upstream talimgo_api {
+        server 127.0.0.1:8000;
+        keepalive 16;
+    }
+
+    server {
+        listen 80;
+        server_name talimgo.example;
+
+        location ^~ /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        location / {
+            return 301 https://$server_name$request_uri;
+        }
+    }
+
+    server {
+        listen 443 ssl http2;
+        server_name talimgo.example;
+
+        ssl_certificate /etc/letsencrypt/live/talimgo.example/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/talimgo.example/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_cache shared:TALIMGO_TLS:10m;
+        ssl_session_timeout 10m;
+        ssl_session_tickets off;
+
+        root /srv/talimgo/frontend/dist;
+        index index.html;
+        client_max_body_size 256k;
+
+        # HSTS intent: one year, this host only. `includeSubDomains` and `preload` are deliberately
+        # absent — they commit every current and future subdomain to HTTPS, so they are added only
+        # once that is true for the whole domain (see docs/DEPLOYMENT.md).
+        add_header Strict-Transport-Security "max-age=31536000" always;
+
+        # A request refused by the edge rate limits below is answered by Nginx itself, so this gives
+        # that response the same JSON error shape the API uses; an interface that reads `detail` shows
+        # a real sentence instead of a bare status. Responses that come *from* the API are untouched:
+        # `proxy_intercept_errors` stays off, so the API's own 429 keeps its specific message and
+        # Retry-After header.
+        error_page 429 = @talimgo_rate_limited;
+
+        location @talimgo_rate_limited {
+            default_type application/json;
+            return 429 '{"detail":"Too many requests. Please wait a moment and try again."}';
+        }
+
+        location = /api {
+            proxy_pass http://talimgo_api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Forwarded "";
+            proxy_hide_header Strict-Transport-Security;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 120s;
+        }
+
+        location ^~ /api/auth/ {
+            limit_req zone=talimgo_auth burst=5 nodelay;
+
+            proxy_pass http://talimgo_api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Forwarded "";
+            proxy_hide_header Strict-Transport-Security;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 120s;
+        }
+
+        location ^~ /api/ {
+            limit_req zone=talimgo_api burst=30 nodelay;
+
+            proxy_pass http://talimgo_api;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header Forwarded "";
+            proxy_hide_header Strict-Transport-Security;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 120s;
+        }
+
+        location / {
+            # The API's hardening headers are set by the application itself. This location serves the
+            # built interface straight from disk, so the document needs its own policy. Declaring
+            # `add_header` here cancels inheritance of the server-level HSTS header — hence the
+            # repetition below. `Permissions-Policy` mirrors backend/app/http_hardening.py.
+            #
+            # `style-src` allows inline styles because the interface sets style attributes. Scripts are
+            # restricted to this deployment's own bundles. Browser enforcement of a CSP cannot be
+            # checked by CI: after deploying, load the interface and confirm it still works, then
+            # check the policy in the browser console (docs/DEPLOYMENT.md, post-deploy checks).
+            add_header Strict-Transport-Security "max-age=31536000" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header X-Frame-Options "DENY" always;
+            add_header Referrer-Policy "no-referrer" always;
+            add_header Permissions-Policy "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'" always;
+
+            try_files $uri $uri/ /index.html;
+        }
+    }
+}
