@@ -87,7 +87,7 @@ def check_urls(failures: list[str]) -> int:
     used_exceptions: set[tuple[str, str]] = set()
     for path in source_files():
         text = path.read_text(encoding="utf-8")
-        relative = str(path.relative_to(REPO))
+        relative = str(path.relative_to(REPO)).replace("\\", "/")
         for match in URL_PATTERN.finditer(text):
             raw = match.group(0)
             host = urlparse(raw).hostname or ""

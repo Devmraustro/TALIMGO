@@ -254,7 +254,7 @@ def test_no_forbidden_sdk_imports_in_application_code() -> None:
     for path in _python_sources():
         text = path.read_text(encoding="utf-8")
         if FORBIDDEN_SDK_IMPORTS.search(text):
-            offenders.append(str(path.relative_to(REPO_ROOT)))
+            offenders.append(str(path.relative_to(REPO_ROOT)).replace("\\", "/"))
     assert offenders == [], f"forbidden provider SDK imported in: {offenders}"
 
 
@@ -272,7 +272,7 @@ def _normalise_for_scan(text: str) -> str:
 def test_no_forbidden_hosts_in_application_code() -> None:
     offenders = []
     for path in _python_sources():
-        relative = str(path.relative_to(REPO_ROOT))
+        relative = str(path.relative_to(REPO_ROOT)).replace("\\", "/")
         if relative in ALLOWED:
             continue
         text = _normalise_for_scan(path.read_text(encoding="utf-8").lower())

@@ -141,12 +141,13 @@ def test_downgrade_and_upgrade_round_trip(tmp_path, monkeypatch) -> None:
 def test_alembic_cli_reports_the_head_revision(tmp_path, monkeypatch) -> None:
     """The documented command must work in a fresh shell, not only through the Python API."""
     database_url = f"sqlite:///{tmp_path / 'cli.db'}"
-    env = {
-        "PATH": "/usr/bin:/bin",
+    import os
+    env = os.environ.copy()
+    env.update({
         "TALIMGO_ENV": "test",
         "TALIMGO_DATABASE_URL": database_url,
         "PYTHONPATH": str(BACKEND),
-    }
+    })
     # Invoke Alembic through the interpreter running the tests, so this works in any environment
     # (virtualenv, system install, CI) instead of assuming a specific layout under backend/.
     completed = subprocess.run(  # fixed argv, no shell
