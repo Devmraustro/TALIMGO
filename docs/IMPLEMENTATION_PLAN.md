@@ -858,3 +858,33 @@ carries a dated 2026-10-12 re-check and a corrected statement about the deployed
 deployed, and the alias was neither redeployed nor reconfigured. The rehearsal used self-signed TLS on
 non-privileged ports against PostgreSQL on loopback, so it verifies the configuration and the code path,
 not a real internet-facing deployment.
+
+### 7.21 Current CI verification and Vercel access boundary (2026-10-15)
+
+**CONFIRMED.** The branch head was re-read from GitHub as `839f357176965057ccec7326e9bd3f6769bef6cb`.
+The PR remains open and unmerged; `main` remains at `91214de3f2a4aaa5312e8cfb03267506be12e581`.
+Both CI runs on this exact SHA passed all seven jobs:
+
+* Push: https://github.com/Devmraustro/TALIMGO/actions/runs/38721901732
+* Pull request: https://github.com/Devmraustro/TALIMGO/actions/runs/38721909911
+
+The successful jobs include backend tests/static checks, PostgreSQL migration and persistence rehearsals,
+reverse-proxy TLS checks, local-only AI enforcement, frontend typecheck/build/component tests, dependency and
+licence audit, and the new Chromium browser journey with axe accessibility scans. The browser job explicitly
+reported passing scans for the English registration form, English goal form, English diagnostic form,
+Arabic RTL settings, and Arabic registration in dark mode. The journey exercised registration, goal creation,
+a real diagnostic answer, Arabic RTL, mobile reflow, account deletion, and same-origin requests.
+
+**TESTED, not a conformance claim.** Chromium and axe are executed by GitHub Actions; this does not replace
+manual screen-reader testing, a broader browser/device matrix, or owner verification of the live deployment.
+
+**BLOCKED (owner access).** On 2026-10-15, Vercel project listing returned `talimgo-preview`, but project
+detail and deployment-list requests returned 403 under scope `devmraustros-projects`. The deployment fetch
+helper was also denied at Vercel's protection-bypass endpoint. No Vercel setting, deployment, alias, domain,
+or environment variable was changed. The 2026-10-12 public URL observations are historical and were not
+re-verified in this round. The next step is to restore Vercel inspection access, verify the actual project
+and deployment, then decide whether to deploy the latest frontend preview. This does not provision the
+missing API, PostgreSQL database, or local model runtime.
+
+**NOT CLAIMED.** There is still no verified live TALIMGO staging deployment, no verified production backend,
+and no local-model inference evidence.

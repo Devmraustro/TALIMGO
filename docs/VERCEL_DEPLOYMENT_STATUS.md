@@ -1,12 +1,19 @@
 # Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-12** (re-checked for a second time; the two earlier checks are recorded below).
+Status date: **2026-10-15**. Earlier public-host observations are preserved below with their original dates; this session could not re-fetch the public alias because the connected Vercel integration denied access.
 This file records what was actually observed about the Vercel deployment from outside, what it can and
 cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
-**Nothing on the Vercel side was changed in any round.** No project setting, deployment, alias, domain
-or environment variable was touched through any API or dashboard: the observations below come from
-fetching the public URLs, and no Vercel credential was used because none is available to this session.
+**Nothing on the Vercel side was changed in this round.** No project setting, deployment, alias, domain,
+or environment variable was modified.
+
+**Access check on 2026-10-15:** the connected Vercel integration can list projects and returned `talimgo-preview`
+(project ID `prj_RX2NmJBTcZTkygGNgZKcbhqBk7aA`, account ID `team_iubQ9zIhIVUMqAj1vvq59Dk9`). However,
+`get_project` and `list_deployments` were denied with **403 Forbidden** under scope `devmraustros-projects`;
+`list_teams` and the Git deployment context returned no teams. The deployment-fetch helper also failed while
+requesting Vercel's protection-bypass endpoint with 403. Therefore, project settings, deployment history,
+current public responses, and response headers could not be freshly verified in this session. No deployment
+or protection bypass was attempted beyond those read-only inspection calls.
 
 ### 2026-10-12 re-check (unchanged)
 
@@ -23,8 +30,7 @@ not say that. The deployed bundle therefore still predates that fix, exactly as 
 the correct verdict: it refuses a host that answers `200` with HTML instead of the recorded
 `/api/health` contract.
 
-Response headers remain unmeasurable from this environment (no TCP egress to `vercel.app`, and no Vercel
-connector), so no header claim is made for this host in either direction.
+Response headers remain **unverified**. The 2026-10-12 observation could not be refreshed on 2026-10-15 because the Vercel integration denied access to the deployment.
 
 ## What exists
 
@@ -46,9 +52,7 @@ redeployed; the next deployment of this branch would pick the fixes up.
 
 ## What was verified, and how
 
-No Vercel API access exists in this session (the Vercel connector is not available here, and the
-sandbox cannot open a TCP connection to `vercel.app`), so every observation below comes from fetching
-the public URLs over the internet. Response *headers* could not be read this way; that limitation is
+The Vercel integration is present but only partially authorized. Project listing succeeded; project details and deployment listing returned 403, and the deployment fetch helper was denied at the protection-bypass endpoint. The URL observations below are historical public-host observations from 2026-10-11/12, not a fresh check on 2026-10-15. Response *headers* could not be read this way; that limitation is
 recorded rather than guessed at.
 
 | Observation | Result |
@@ -70,14 +74,11 @@ recorded rather than guessed at.
   migrations, the in-process generation gate), a persistent PostgreSQL database, and — for tutoring —
   a **local** model runtime on TALIMGO-controlled infrastructure. Hosted AI providers are excluded by
   product rule, and no hosted provider may be introduced to make the deployment "work".
-* Pushing to the branch may or may not build a new Vercel deployment; that could not be confirmed
-  without Vercel access. It is an owner check (see below).
+* Pushing to the branch may or may not build a new Vercel deployment; the current Git integration and deployment history could not be inspected because the Vercel API returned 403. It remains an owner check (see below).
 
 ## Owner actions, shortest path first
 
-1. **Grant inspection access** (or read it in the dashboard): confirm Git integration, whether pushes
-   to `arena/c22f9408-talimgo` build, and the deployment-protection setting. Nothing in the repository
-   can substitute for this.
+1. **Restore Vercel inspection access** for the `devmraustros-projects` scope (or inspect the same values in the dashboard): confirm Git integration, whether pushes to `arena/c22f9408-talimgo` build, and deployment-protection settings. Then re-check the public alias and `/api/health`. Nothing in the repository can substitute for this.
 2. **Choose the topology** (see `docs/DEPLOYMENT.md`, "Where the built interface is hosted"):
    * single host: FastAPI + PostgreSQL + Nginx serving the built interface on the same origin — the
      supported, tested path, and the only one that needs no Vercel involvement;
@@ -95,7 +96,7 @@ recorded rather than guessed at.
 
 | Area | State | Evidence |
 | --- | --- | --- |
-| Vercel project/build | **UNVERIFIED here** — project, deployment ID and build settings come from the owner's snapshot; this session has no Vercel access to confirm the build log, commit, or protection settings | The connector is unavailable in this session and the sandbox has no TCP egress to `vercel.app` |
+| Vercel project/build | **PARTIALLY CONFIRMED** — project listing returns `talimgo-preview` and its ID; details and deployments remain **UNVERIFIED** due to 403 | `list_projects` succeeds; `get_project`, `list_deployments`, and deployment fetch fail with 403 under the Vercel scope |
 | Deployed interface (frontend) | **CONFIRMED reachable, but non-functional as a product** — alias returns the interface shell over HTTPS; no API behind it | Public fetches: `/` renders; `/api/health` → 404; in-app banner "Request failed (404)." |
 | Backend/API | **CONFIRMED not deployed** on that host; **UNVERIFIED** anywhere else (no authorised target exists) | `/api/health` → 404 on the alias |
 | PostgreSQL/migrations | **CONFIRMED not deployed** for that host; migrations are **TESTED** in CI and locally against PostgreSQL 16.2 (upgrade to head, drift check, legacy-plan rehearsal, dump/restore with row-count and revision comparison) | `postgres-integration` CI job; local rehearsals in this session |
@@ -107,8 +108,7 @@ recorded rather than guessed at.
 ## What this file does not claim
 
 * No production readiness, no completed staging, no working backend, no database, no model runtime.
-* No header, TLS or routing guarantee for the live Vercel host: those were not measurable from here,
-  and `frontend/vercel.json` only takes effect on a new deployment.
+* No current header, TLS or routing guarantee for the live Vercel host: those were not re-measurable on 2026-10-15, and `frontend/vercel.json` only takes effect on a new deployment.
 * No browser-level verification performed locally in this session: the Chromium journey runs in CI
   (`browser-smoke` job); the browser download is unavailable in this sandbox, and the environment lacks
   the shared libraries a Chromium build needs.
