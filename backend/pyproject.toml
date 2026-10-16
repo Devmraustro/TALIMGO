@@ -57,6 +57,13 @@ ignore = [
 # Authored curriculum prose legitimately has long lines; it is content, not code shape.
 "app/curriculum/*.py" = ["E501"]
 
+[tool.vercel]
+entrypoint = "app.main:app"
+
+[tool.vercel.fastapi.static]
+cdn = false
+exclude = false
+
 [tool.coverage.run]
 source = ["app"]
 omit = ["app/curriculum/*"]
