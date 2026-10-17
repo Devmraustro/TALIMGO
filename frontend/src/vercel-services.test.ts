@@ -5,52 +5,65 @@ import { describe, expect, it } from "vitest";
 const repositoryRoot = resolve(__dirname, "..", "..");
 
 function readRootVercelConfig(): {
-  services: {
-    web: { framework: string; root: string; buildCommand?: string; outputDirectory?: string };
-    api: { framework: string; root: string; entrypoint: string };
-  };
-  rewrites: { source: string; destination: { service: string } }[];
+  framework: string;
+  installCommand: string;
+  buildCommand: string;
+  outputDirectory: string;
+  headers: { source: string; headers: { key: string; value: string }[] }[];
+  routes: { src?: string; status?: number; handle?: string; dest?: string }[];
+  services?: unknown;
+  rewrites?: unknown;
 } {
   return JSON.parse(readFileSync(resolve(repositoryRoot, "vercel.json"), "utf8")) as {
-    services: {
-      web: { framework: string; root: string; buildCommand?: string; outputDirectory?: string };
-      api: { framework: string; root: string; entrypoint: string };
-    };
-    rewrites: { source: string; destination: { service: string } }[];
+    framework: string;
+    installCommand: string;
+    buildCommand: string;
+    outputDirectory: string;
+    headers: { source: string; headers: { key: string; value: string }[] }[];
+    routes: { src?: string; status?: number; handle?: string; dest?: string }[];
+    services?: unknown;
+    rewrites?: unknown;
   };
 }
 
-describe("root Vercel Services configuration", () => {
-  it("declares the Vite frontend and FastAPI backend under one project", () => {
+describe("root Vercel frontend-only configuration", () => {
+  it("builds the Vite frontend from the repository root", () => {
     const config = readRootVercelConfig();
 
-    expect(config.services.web.framework).toBe("vite");
-    expect(config.services.web.root).toBe("frontend");
-    expect(config.services.web.buildCommand).toBe("npm run build");
-    expect(config.services.web.outputDirectory).toBe("dist");
-
-    expect(config.services.api.framework).toBe("fastapi");
-    expect(config.services.api.root).toBe("backend");
-    expect(config.services.api.entrypoint).toBe("app.main:app");
+    expect(config.framework).toBe("vite");
+    expect(config.installCommand).toBe("npm ci --prefix frontend");
+    expect(config.buildCommand).toBe("npm run build --prefix frontend");
+    expect(config.outputDirectory).toBe("frontend/dist");
+    expect(config.services).toBeUndefined();
+    expect(config.rewrites).toBeUndefined();
   });
 
-  it("routes API requests before the frontend catch-all", () => {
+  it("refuses API paths explicitly while the backend host is not provisioned", () => {
     const config = readRootVercelConfig();
 
-    expect(config.rewrites).toHaveLength(2);
-    expect(config.rewrites[0]).toEqual({
-      source: "/api/(.*)",
-      destination: { service: "api" },
+    expect(config.routes[0]).toEqual({
+      src: "^/api(?:/.*)?$",
+      status: 404,
     });
-    expect(config.rewrites[1]).toEqual({
-      source: "/(.*)",
-      destination: { service: "web" },
+    expect(config.routes[1]).toEqual({ handle: "filesystem" });
+    expect(config.routes[2]).toEqual({
+      src: "^/(.*)$",
+      dest: "/index.html",
     });
   });
 
-  it("keeps the API service entrypoint tied to the FastAPI application", () => {
+  it("keeps security headers on all served paths", () => {
     const config = readRootVercelConfig();
 
-    expect(config.services.api.entrypoint).toBe("app.main:app");
+    expect(config.headers).toHaveLength(1);
+    expect(config.headers[0].source).toBe("/(.*)");
+    const headers = new Map(config.headers[0].headers.map((header) => [
+      header.key.toLowerCase(),
+      header.value,
+    ]));
+    expect(headers.get("x-frame-options")).toBe("DENY");
+    expect(headers.get("x-content-type-options")).toBe("nosniff");
+    expect(headers.get("referrer-policy")).toBe("no-referrer");
+    expect(headers.get("strict-transport-security")).toBe("max-age=31536000");
   });
 });
