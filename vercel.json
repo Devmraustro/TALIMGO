@@ -1,41 +1,31 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "services": {
-    "web": {
-      "framework": "vite",
-      "root": "frontend",
-      "buildCommand": "npm run build",
-      "outputDirectory": "dist",
+  "framework": "vite",
+  "installCommand": "npm ci --prefix frontend",
+  "buildCommand": "npm run build --prefix frontend",
+  "outputDirectory": "frontend/dist",
+  "headers": [
+    {
+      "source": "/(.*)",
       "headers": [
+        { "key": "Strict-Transport-Security", "value": "max-age=31536000" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
         {
-          "source": "/(.*)",
-          "headers": [
-            { "key": "Strict-Transport-Security", "value": "max-age=31536000" },
-            { "key": "X-Content-Type-Options", "value": "nosniff" },
-            { "key": "X-Frame-Options", "value": "DENY" },
-            { "key": "Referrer-Policy", "value": "no-referrer" },
-            {
-              "key": "Content-Security-Policy",
-              "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
-            }
-          ]
+          "key": "Permissions-Policy",
+          "value": "accelerometer=(), ambient-light-sensor=(), autoplay=(), battery=(), camera=(), display-capture=(), document-domain=(), encrypted-media=(), fullscreen=(), geolocation=(), gyroscope=(), hid=(), idle-detection=(), magnetometer=(), microphone=(), midi=(), payment=(), picture-in-picture=(), publickey-credentials-get=(), screen-wake-lock=(), serial=(), usb=(), xr-spatial-tracking=()"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
         }
       ]
-    },
-    "api": {
-      "framework": "fastapi",
-      "root": "backend",
-      "entrypoint": "app.main:app",
-      "functions": {
-        "app/main.py": {
-          "maxDuration": 60,
-          "excludeFiles": "{tests/**,**/*.test.py,.pytest_cache/**}"
-        }
-      }
     }
-  },
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": { "service": "api" } },
-    { "source": "/(.*)", "destination": { "service": "web" } }
+  ],
+  "routes": [
+    { "src": "^/api(?:/.*)?$", "status": 404 },
+    { "handle": "filesystem" },
+    { "src": "^/(.*)$", "dest": "/index.html" }
   ]
 }
