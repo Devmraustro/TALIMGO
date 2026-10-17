@@ -1,0 +1,396 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (tests, invariants, static checks)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: |
+          ruff check app tests scripts
+          ruff format --check app tests scripts
+
+      - name: Static security analysis (bandit)
+        run: bandit -q -r app
+
+      - name: Migrations apply to an empty database, and match the models
+        env:
+          TALIMGO_ENV: test
+          TALIMGO_DATABASE_URL: sqlite:///./ci-migration-test.db
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Production preflight accepts a correct configuration, and refuses SQLite in production
+        run: |
+          # A throwaway secret generated here, never a committed value: the check only reads the
+          # settings object, it never connects to the database or to a model.
+          export TALIMGO_ENV=production
+          export TALIMGO_SESSION_SECRET="$(openssl rand -hex 32)"
+          export TALIMGO_ALLOWED_ORIGINS=https://talimgo.example
+          export TALIMGO_AI_ENABLED=false
+          export TALIMGO_DATABASE_URL=postgresql+psycopg://talimgo:not-a-real-password@127.0.0.1:5432/talimgo
+          python scripts/check_production_config.py
+          if TALIMGO_DATABASE_URL=sqlite:///./ci-production-preflight.db \
+            python scripts/check_production_config.py; then
+            echo "the preflight must refuse a SQLite production database"; exit 1
+          fi
+
+      - name: Tests (unit, API, learning invariants, local-AI policy)
+        env:
+          TALIMGO_ENV: test
+          TALIMGO_DATABASE_URL: sqlite:///./ci-test.db
+        run: pytest -q
+
+      - name: Offline local-model integration test (skips when no runtime is installed)
+        env:
+          TALIMGO_ENV: test
+          TALIMGO_DATABASE_URL: sqlite:///./ci-test.db
+        run: pytest -q -m local_model -rs
+
+  postgres-integration:
+    name: PostgreSQL (migrations, startup and persistence)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: talimgo
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d talimgo"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      TALIMGO_ENV: test
+      TALIMGO_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/talimgo
+      TALIMGO_SESSION_SECRET: postgres-ci-session-secret-change-this
+      TALIMGO_AI_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Exercise populated legacy-plan migration on PostgreSQL
+        run: python scripts/postgres_legacy_migration.py
+
+      - name: Re-apply migration chain and check schema drift
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: Smoke-test startup, account/session and goal persistence on PostgreSQL
+        run: python scripts/postgres_smoke.py
+
+      - name: Install PostgreSQL client tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+
+      - name: Dump, restore into a scratch database and exercise the restored API
+        run: python scripts/postgres_backup_restore.py
+
+  proxy-tls-smoke:
+    name: Reverse proxy (TLS, redirects and trusted forwarding headers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nginx and test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx openssl curl
+
+      - name: Validate and smoke-test the example HTTPS edge configuration
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /etc/letsencrypt/live/talimgo.example /srv/talimgo/frontend/dist /var/www/certbot
+          sudo openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -keyout /etc/letsencrypt/live/talimgo.example/privkey.pem \
+            -out /etc/letsencrypt/live/talimgo.example/fullchain.pem \
+            -subj "/CN=talimgo.example" \
+            -addext "subjectAltName=DNS:talimgo.example"
+          printf '%s\n' '<!doctype html><title>TALIMGO</title><main>TALIMGO edge smoke</main>' \
+            | sudo tee /srv/talimgo/frontend/dist/index.html >/dev/null
+          sudo nginx -t -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example"
+
+          python3 deploy/nginx/ci_upstream.py >/tmp/talimgo-upstream.log 2>&1 &
+          upstream_pid=$!
+          cleanup() {
+            sudo nginx -s stop -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example" >/dev/null 2>&1 || true
+            kill "$upstream_pid" >/dev/null 2>&1 || true
+            wait "$upstream_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          sudo nginx -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example"
+          for _ in $(seq 1 30); do
+            if curl -sk --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          redirect=$(curl -sS -o /dev/null -w '%{http_code}|%{redirect_url}' \
+            -H 'Host: talimgo.example' 'http://127.0.0.1/demo?from=http')
+          test "$redirect" = '301|https://talimgo.example/demo?from=http'
+
+          page=$(curl -sk --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/)
+          grep -q 'TALIMGO edge smoke' <<<"$page"
+
+          hsts=$(curl -skI --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ \
+            | tr -d '\r' | grep -i '^Strict-Transport-Security:')
+          grep -qi 'max-age=31536000' <<<"$hsts"
+
+          # The interface document is served from disk, so it needs its own browser-facing policy.
+          document_headers=$(curl -skI --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ \
+            | tr -d '\r')
+          grep -qi '^X-Content-Type-Options: nosniff' <<<"$document_headers"
+          grep -qi '^X-Frame-Options: DENY' <<<"$document_headers"
+          grep -qi '^Referrer-Policy: no-referrer' <<<"$document_headers"
+          grep -qi '^Permissions-Policy: .*camera=(), .*microphone=()' <<<"$document_headers"
+          grep -qi "^Content-Security-Policy: default-src 'self'" <<<"$document_headers"
+
+          # An API-level refusal reaches the client unchanged: same body, same Retry-After. This fails
+          # if `proxy_intercept_errors` is ever switched on, which would replace it with the edge page.
+          passthrough=$(curl -sk -D /tmp/talimgo-passthrough.headers \
+            --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/api/ci-edge-passthrough)
+          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["detail"] == "api-level limit reached", d; print("API refusal passed through the edge unchanged")' "$passthrough"
+          grep -qi '^Retry-After: 7' <(tr -d '\r' < /tmp/talimgo-passthrough.headers)
+
+          forwarded=$(curl -skfS --resolve talimgo.example:443:127.0.0.1 \
+            -H 'X-Forwarded-Proto: http' \
+            -H 'X-Forwarded-For: 203.0.113.11' \
+            -H 'Forwarded: for=203.0.113.11' \
+            https://talimgo.example/api/health)
+          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); h=d["headers"]; assert h["X-Forwarded-Proto"] == "https", h; assert h["X-Forwarded-For"] == "127.0.0.1", h; assert h["Forwarded"] is None, h; print("TLS proxy trust-boundary passed")' "$forwarded"
+
+          # Seven immediate requests exceed the six-request burst budget for one client. The status and
+          # body are read from the same response so the assertion cannot race the token refill.
+          for attempt in $(seq 1 7); do
+            auth_response=$(curl -sk -w '\n%{http_code}' \
+              --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/api/auth/ci-probe)
+            auth_status=$(tail -n1 <<<"$auth_response")
+            auth_body=$(sed '$d' <<<"$auth_response")
+          done
+          test "$auth_status" = '429'
+
+          # The edge's own refusal uses the API's JSON error shape, so a client that reads `detail`
+          # shows a sentence. It deliberately carries no Retry-After: the edge cannot know the exact
+          # refill time, while the API's own limits do send one.
+          python3 -c 'import json,sys; d=json.loads(sys.argv[1]); assert d["detail"], d; print("edge 429 body is JSON:", d["detail"])' "$auth_body"
+
+  local-only-ai:
+    name: Local-only AI gate (no hosted providers in code or manifests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Source and manifest check
+        run: python scripts/check_no_external_ai.py
+
+  frontend:
+    name: Frontend (typecheck, build, component tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install
+        run: npm ci --no-audit --no-fund
+      - name: Type check
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Check the built artifact (same-origin assets, no local or insecure host)
+        run: node scripts/check-bundle.mjs
+      - name: Tests (the live-stack UI smoke test self-skips here)
+        run: npm test -- --run
+
+  browser-smoke:
+    name: Chromium browser journey and axe accessibility checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Install pinned Playwright, axe-core and Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/talimgo-browser" --no-save --no-package-lock "playwright@1.64.0" "axe-core@4.10.3"
+          "$RUNNER_TEMP/talimgo-browser/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Start API and frontend, then exercise the real browser
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd backend
+            TALIMGO_ENV=test \
+            TALIMGO_DATABASE_URL=sqlite:////tmp/talimgo-browser-smoke.db \
+            TALIMGO_SESSION_SECRET=browser-smoke-session-secret-change-this-value \
+            TALIMGO_AI_ENABLED=false \
+            python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+          ) >/tmp/talimgo-browser-api.log 2>&1 &
+          api_pid=$!
+
+          (
+            cd frontend
+            TALIMGO_API_TARGET=http://127.0.0.1:8000 npm run dev -- --host 127.0.0.1
+          ) >/tmp/talimgo-browser-vite.log 2>&1 &
+          web_pid=$!
+
+          cleanup() {
+            kill "$web_pid" >/dev/null 2>&1 || true
+            kill "$api_pid" >/dev/null 2>&1 || true
+            wait "$web_pid" >/dev/null 2>&1 || true
+            wait "$api_pid" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          api_ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null; then
+              api_ready=1
+              break
+            fi
+            sleep 0.5
+          done
+          test "$api_ready" = "1"
+
+          web_ready=0
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:5173/ >/dev/null; then
+              web_ready=1
+              break
+            fi
+            sleep 0.5
+          done
+          test "$web_ready" = "1"
+
+          export PLAYWRIGHT_MODULE_PATH="$RUNNER_TEMP/talimgo-browser/node_modules/playwright"
+          export AXE_CORE_MODULE_PATH="$RUNNER_TEMP/talimgo-browser/node_modules/axe-core"
+          export TALIMGO_BROWSER_BASE_URL=http://127.0.0.1:5173
+          node frontend/scripts/browser-smoke.cjs
+
+      - name: Save browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: talimgo-browser-smoke-failure
+          path: |
+            /tmp/talimgo-browser-smoke-failure.png
+            /tmp/talimgo-browser-api.log
+            /tmp/talimgo-browser-vite.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  dependency-audit:
+    name: Dependency and licence audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python vulnerability audit
+        working-directory: backend
+        run: |
+          # Upgrade the environment's own build tooling first: pip-audit otherwise reports the
+          # interpreter's seeded pip/setuptools, which are not TALIMGO's dependencies.
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install pip-audit
+          pip install -e .
+          pip-audit --progress-spinner off
+
+      - name: Python licence policy
+        working-directory: backend
+        run: python scripts/check_licences.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Node vulnerability audit and licence policy
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm audit --omit=dev
+          node scripts/check-licences.mjs

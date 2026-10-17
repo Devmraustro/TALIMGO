@@ -1,0 +1,890 @@
+# TALIMGO implementation plan
+
+**Status labels:** CONFIRMED · PROPOSED · UNVERIFIED · IMPLEMENTED · TESTED · BLOCKED · FUTURE
+**Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
+executed and its result observed. Evidence lines record the command actually run.
+
+Last updated: 2026-10-15 (status rechecked against GitHub Actions runs on 2026-10-12).
+
+---
+
+## 0. Where the project stands
+
+| Item | Status | Evidence |
+|---|---|---|
+| Product reference committed to the repository | IMPLEMENTED | `TALIMGO_MASTER_REFERENCE.md`, sha256 `d9c337d38ab0a5dbeaef206273c0619821b7874908a18e71657ce4439a84eace` |
+| Engineering rules recorded | IMPLEMENTED | `AGENTS.md` |
+| Third-party audit of the three named candidates | IMPLEMENTED | `docs/OPEN_SOURCE_REUSE_AUDIT.md` |
+| Stack decision | CONFIRMED (owner-delegated) | `docs/adr/0001-stack-and-repository-layout.md` |
+| Local-only AI policy | CONFIRMED | `AGENTS.md` §2, `docs/adr/0002-local-ai-only.md` |
+| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | Latest verified CI on `438f759` passed the backend job, including Ruff, Bandit, migration checks, full pytest suite, and the explicit local-model skip; see [PR CI run 38245789728](https://github.com/Devmraustro/TALIMGO/actions/runs/38245789728). Exact pytest pass count is not stated in the captured summary lines. |
+| Frontend slice | TESTED | Latest CI: typecheck/build and Vitest passed (56 tests passed, 1 skipped); the bundle gate passed. The skip is the opt-in live-stack UI smoke test, which has a separate browser journey job. |
+| Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` (66 files, 3 URL literals); proven to fail on a planted violation |
+| Real local-model integration verified | BLOCKED (environment) | No local model runtime was configured in CI. `pytest -m local_model` explicitly skips with: `set TALIMGO_TEST_LOCAL_MODEL=1 and configure a local runtime to run this test`. Mock adapter tests do not establish real Arabic output quality, latency, throughput, or grounding quality. |
+
+---
+
+## 0.1 Latest CI evidence (2026-10-12)
+
+The current branch head verified during this status pass is `438f7597c365bdaab6cc64e01648bd27ff09b5b7`. The matching push and pull-request workflows both completed successfully with seven jobs:
+
+- [Push run 38245783903](https://github.com/Devmraustro/TALIMGO/actions/runs/38245783903)
+- [Pull-request run 38245789728](https://github.com/Devmraustro/TALIMGO/actions/runs/38245789728)
+
+The browser job ran a real Chromium journey against a locally started API and Vite server. It passed registration, goal creation, a real diagnostic-answer API request, Arabic RTL settings, mobile horizontal-overflow check, account deletion/session invalidation, same-origin network assertions, and four axe-core WCAG A/AA scans. This is automated browser evidence on a disposable CI stack, not a manual screen-reader audit or a production-host test.
+
+PostgreSQL migration/persistence and custom-format backup/restore, Nginx edge checks, frontend tests/build, backend tests/static checks, local-only AI policy, and dependency/licence audit also passed in the same CI run. The real local-model integration remains skipped because no runtime was configured.
+
+---
+
+## 1. Checkpoint table
+
+| # | Checkpoint | Status | Acceptance criteria | Evidence |
+|---|---|---|---|---|
+| 1 | Repository foundation | TESTED | Reference committed unchanged; `AGENTS.md`; stack ADR; reuse audit; local-AI architecture; threat model | commit `086ba5f`; `TALIMGO_MASTER_REFERENCE.md` sha256 unchanged |
+| 2 | Core application skeleton | TESTED | App boots, config validated at startup, migrations apply and match the models, auth works | commit `e30baea`; `tests/test_migrations.py`; `alembic upgrade head` + `alembic check` |
+| 3 | Learning journey slice | TESTED | Goal → diagnostic → validated roadmap → dashboard next action, end to end through the API and the real interface | commit `1008a52`; `tests/test_api_journey.py`; live journey + UI smoke test (§5) |
+| 4 | Local AI tutor | TESTED (mock endpoint), BLOCKED (real runtime) | Tutor grounded in retrieved curriculum, strict JSON validated, citation allow-list, local-only enforced, explicit failure when unavailable; no fallback path exists | commit `14c0be3`; `tests/test_ai_local_only.py`, `tests/test_tutor_local.py` |
+| 5 | Learning outcomes | PARTIAL | Quizzes with deterministic grading, evidence persistence, mastery estimates, adaptive next action, confirmation checks for provisional knowledge; no project/portfolio work yet | `tests/test_grading.py`, `tests/test_mastery_model.py`, ADR 0005 |
+| 6 | Hardening | PARTIAL | Lint, static security, dependency/licence gates, PostgreSQL migration and backup/restore rehearsal, Nginx TLS-edge checks, Chromium browser journey and axe-core WCAG A/AA scans are automated in CI. No independent penetration test or human accessibility audit; no real public deployment, DNS/TLS issuance, off-host backup, or real local-model runtime is verified. | [CI run 38245789728](https://github.com/Devmraustro/TALIMGO/actions/runs/38245789728); `docs/DEPLOYMENT.md`; `docs/SECURITY_THREAT_MODEL.md` |
+
+Each checkpoint is developed as: define observable behaviour and tests → smallest coherent change →
+run focused tests → run lint/type/build/security → inspect the UI for UI changes → independent review
+of the diff → fix findings → record commit and evidence.
+
+---
+
+## 2. Checkpoint 2–3 details (current work)
+
+### Scope of the first vertical slice (CONFIRMED for this iteration)
+
+In scope:
+
+1. **Accounts and sessions** — register, login, logout, session introspection; bcrypt password hashing
+   with SHA-256 pre-hash; server-side sessions stored hashed with expiry; login rate limiting;
+   authorisation checks on every object access.
+2. **Profile and preferences** — display name, interface locale, text direction, session length,
+   weekly availability, accessibility flags (reduced motion, low bandwidth).
+3. **Consent records** — separate records for account/learning, AI processing, analytics, marketing.
+4. **Curriculum as data** — one authored path (Python programming foundations) with objectives,
+   prerequisites, modules, lessons, practice items with verified keys, milestones and projects.
+5. **Goal creation** — free-text goal plus outcome statement, target date (optional), constraints.
+6. **Diagnostic assessment** — adaptive-by-difficulty item selection from the objective pool,
+   deterministic grading, evidence emission, provisional placement with confidence labels.
+7. **Roadmap generation and validation** — deterministic topological planning from the curriculum
+   graph, filtered by evidenced mastery and constrained by the time budget; a validation gate that
+   rejects prerequisite-order violations, missing objectives, cycle-breaking plans and time budgets
+   outside tolerance; persisted plan version with a validation record.
+8. **Dashboard** — current goal, single next action with rationale, recent evidenced progress, blockers.
+9. **Practice and mastery** — practice sessions generating evidence; a deterministic, replayable
+   mastery model with phases and stability; explainable evidence log per objective.
+10. **Local AI tutor** — grounded in the retrieved objective/lesson context, structured output
+    validated against a schema, local-endpoint-only, explicit failure when unavailable.
+
+Explicitly **out of scope** for this iteration (FUTURE): spaced-repetition scheduling UI, project
+workspace, billing, institutional features, spaced review analytics, multi-language content beyond
+EN/AR strings, file upload for source material, fine-tuning.
+
+### Acceptance criteria for the slice
+
+| ID | Criterion | How it is checked |
+|---|---|---|
+| AC-1 | A new learner can register, sign in, and read their own session; another learner cannot read it | API tests including a negative cross-account test |
+| AC-2 | Onboarding produces a stored goal and profile | API test |
+| AC-3 | A diagnostic yields deterministic grading and per-objective evidence | Unit + API tests |
+| AC-4 | A generated roadmap passes validation and is rejected when a prerequisite is violated | Unit test with a deliberately broken graph + API test asserting 422 |
+| AC-5 | The dashboard returns exactly one primary next action with a rationale | API test |
+| AC-6 | Practice answers create evidence; mastery is recomputable from evidence alone | Unit tests replaying evidence |
+| AC-7 | Mastery rejects estimates with a stale `model_version` | Unit test |
+| AC-8 | Tutor output is schema-validated; invalid output is rejected, never stored | Unit test with malformed model output |
+| AC-9 | AI configuration rejects external hosts (e.g. `api.openai.com`) at startup | Config tests |
+| AC-10 | AI calls go only to the configured local endpoint; unavailability produces an explicit error and no fallback | Adapter tests with a mocked transport |
+| AC-11 | No forbidden provider host/SDK appears in the repository | Repository scan test |
+| AC-12 | Migrations apply cleanly to an empty database | `alembic upgrade head` in CI |
+| AC-13 | Frontend builds, type-checks, and renders the dashboard/next-action and RTL switch | `npm run build`, `npm test` |
+
+---
+
+## 3. Sequencing and dependencies
+
+```
+reference + rules  ──▶  stack decision  ──▶  backend skeleton ──▶  curriculum data
+                                                                        │
+   local-AI policy ──────────────────────────────▶ AI adapter ◀──────────┤
+                                                                        ▼
+                          auth ──▶ profile/goal ──▶ diagnostic ──▶ roadmap ──▶ dashboard
+                                                              │
+                                                              ▼
+                                                    practice ──▶ evidence ──▶ mastery
+                                                                        │
+                                                                        ▼
+                                                              tutor (grounded, local)
+```
+
+### Checkpoint 3 evidence — the probe that changed the product
+
+Walking the journey against the running stack (script recorded in §5) showed that a learner who
+answered **every** starting-check item correctly still received twelve full first-time lessons. The
+planner had no concept of "already shown this". The fix — provisional knowledge yields a short
+confirmation check, never mastery, and an `assess` step never carries lesson text — is recorded in
+`docs/adr/0005-starting-check-evidence-not-mastery.md` and covered by two tests. This is the kind of
+defect that only a real walk-through finds; unit tests around the old behaviour were all green.
+
+Known dependencies and risks for this iteration:
+
+| Risk | Impact | Handling |
+|---|---|---|
+| No local model runtime in the development sandbox | Cannot demonstrate real inference here | Adapter tested against a mock local endpoint; `pytest -m local_model` skips with a clear reason unless a real endpoint is configured; the policy guarantees are enforced by config/adapter tests instead |
+| Curriculum authoring is the long pole | Slice could look thin | One complete path (Python foundations) authored as data with verified item keys; more paths are FUTURE |
+| Breadth creep | Nothing finishes | Out-of-scope list above is binding for this iteration |
+
+---
+
+## 4. What remains incomplete (honest list)
+
+- Only one curriculum path exists; it is small and needs subject review before any learner sees it.
+- Mastery model parameters are **placeholders** to be validated against real evidence, not tuned inputs.
+- Arabic content strings exist for the interface; the full RTL and Arabic typography audit is FUTURE.
+- No spaced-repetition scheduler beyond due-date computation; no flashcards UI.
+- No project workspace, rubrics editor, or portfolio export.
+- No billing, subscription, or institutional features.
+- Accessibility: automated checks only; no manual screen-reader pass, no external audit.
+- No penetration test; the threat model lists what is untested.
+- Real-model quality evaluation (accuracy, hallucination, Arabic quality) is FUTURE and requires a
+  local runtime plus a versioned evaluation set.
+
+---
+
+## 5. Verification log — 2026-10-10
+
+Every command below was executed in this workspace; the output shown is the observed output.
+
+| Check | Command | Observed |
+|---|---|---|
+| Backend tests | `cd backend && .venv/bin/python -m pytest` | `175 passed, 1 skipped, 8 warnings in 27.75s` (the skip is the offline local-model test, with an explicit reason) |
+| Determinism of ordering | `PYTHONHASHSEED=0/12345/999 pytest tests/test_api_auth.py tests/test_api_journey.py` | `25 passed` in each run (a weekday-ordering bug that only appeared under some hash seeds was found and fixed) |
+| Backend lint / format | `ruff check app tests scripts`; `ruff format --check app tests scripts` | `All checks passed!`; `58 files already formatted` |
+| Static security | `bandit -q -r app` | `0` issues (a bidirectional-control-character finding in authored Arabic content and two `assert`-as-validation findings were fixed, not suppressed) |
+| Migrations | `alembic upgrade head` then `alembic check` on a fresh database | upgrade creates 23 tables; `No new upgrade operations detected.`; `tests/test_migrations.py` also covers downgrade → upgrade |
+| Frontend type check | `cd frontend && npx tsc --noEmit` | clean |
+| Frontend tests | `npx vitest run` | 4 files passed, 1 skipped; 16 tests passed, 1 skipped |
+| Frontend production build | `npx vite build` | `dist/index.html` 0.71 kB, CSS 6.36 kB, JS 259.42 kB (gzip 80.07 kB) |
+| Live API journey | register → goal → 12-item adaptive diagnostic → plan → practice through the Vite proxy | `201, 201, placement {assumed_known: 5, likely_known: 7, needs_work: 0}, plan 200, validation ok: true`; 12 steps: 6 `practice`, 6 `assess` |
+| Real-interface smoke test | `TALIMGO_UI_SMOKE=1 npx vitest run src/ui-smoke.test.tsx` against the running stack | `1 passed` (667 ms): the real sign-up form, the real goal form, then the engine's next action opens the starting check and the first question is served |
+| Local-only AI gate | `python scripts/check_no_external_ai.py` | `passed (66 source files, 3 URL literals, no hosted providers imported or declared)`; planted `https://api.openai.com/...` + `import openai` → exit 1 with two violations |
+| Dependency licences | `python scripts/check_licences.py`; `node scripts/check-licences.mjs` | `passed (47 distributions)`; `passed (186 packages)` |
+| CI, first executed run | GitHub Actions run [`38093542327`](https://github.com/Devmraustro/TALIMGO/actions/runs/38093542327) on PR #1 | Frontend **pass** (20s), local-only AI gate **pass** (5s), backend **fail** (21s), dependency audit **fail** (22s) |
+| CI after fixing what the run exposed | run [`38093832336`](https://github.com/Devmraustro/TALIMGO/actions/runs/38093832336) | **all four jobs pass**: backend 51s, dependency/licence audit 24s, frontend 19s, local-only AI gate 5s |
+
+The first CI run failed for two reasons that local execution could not show, and both were fixed
+rather than worked around: the suite imported shared helpers as `tests.conftest`, which only resolves
+when `python -m pytest` puts the working directory on `sys.path` (the `pytest` console script CI uses
+does not — `pythonpath` in `pyproject.toml` now makes it explicit); and `pip-audit` reported the
+interpreter's seeded `pip`/`setuptools` instead of TALIMGO's dependencies, so the job now upgrades the
+build tooling first and still fails on any real finding. The migration test also no longer hard-codes a
+virtualenv path that cannot exist on a CI runner.
+
+### Honest limitations of this evidence
+
+* **No browser in the sandbox.** The UI walk-through is a jsdom *real-stack* test (real components,
+  real forms, real API through the real proxy). It is not a substitute for a human review of layout,
+  RTL rendering and screen-reader behaviour, which remains outstanding.
+* **No local model runtime installed here**, so no real inference was executed in this environment.
+  Everything around the model (endpoint policy, prompt construction, retrieval, schema validation,
+  rejection paths, explicit failure) is tested against a mock local endpoint; quality evaluation
+  against a versioned item set is FUTURE.
+* **The skipped test is reported, not hidden**: CI runs `pytest -m local_model -rs` and shows the skip
+  reason.
+* Coverage percentages are not cited as evidence of correctness; no coverage number was measured.
+
+---
+
+## 6. Code-review round — four integrity findings (2026-10-10)
+
+A review of the merged slice found four defects. Each was reproduced by a failing regression test
+before being fixed; the tests stay in the suite.
+
+| # | Finding | Fix | Regression tests |
+|---|---|---|---|
+| 1 | `start_practice()` accepted any `goal_id`/`plan_item_id`, so learner B could attach a session to learner A's plan item, and completion then ticked A's roadmap item off | ownership and consistency are validated before the session is created (`_resolve_practice_context`, `plan_item_for_user`); foreign references are reported as unknown (404) so existence is not disclosed, and inconsistent references inside the learner's own data as conflicts (409); completion re-checks ownership at the point of the write | `tests/test_authorisation_practice.py` (5 tests, including a pre-existing-session row pointing at a foreign item) |
+| 2 | `answer_diagnostic()` graded and recorded any item, in any order, from any path | the submitted item must be the exact next item for the attempt, belong to the path of the attempt's goal and be diagnostic-eligible; all checks run before grading or writing, so a rejection leaves no response row, no evidence and no cursor movement | `tests/test_diagnostic_integrity.py` (6 tests; each asserts the database is byte-for-byte unchanged) |
+| 3 | `build_grounding()` quoted any lesson id under any objective, corrupting the citation allow-list | a lesson belonging to another objective raises `GroundingMismatchError` before a prompt is built, and the endpoint answers 400; an *unknown* id still falls back to the requested objective's own lesson so a stale link cannot break tutoring | `tests/test_tutor_grounding.py` (5 tests, incl. proof the model is never called and no allowance is consumed) |
+| 4 | `_placement()` only upgraded statuses, so an incorrect answer after a correct one was silently ignored | one explicit rule in `aggregate_placement()`: every answer is counted, any incorrect answer leaves the objective at `needs_work`, otherwise `assumed_known` when the hardest correct item was difficulty >= 3 and `likely_known` for easy-only; counts and the hardest difficulty are reported, and the rule text is returned with the placement | `tests/test_placement_aggregation.py` (9 tests: correct-then-incorrect, incorrect-then-correct, mixed difficulty, independent objectives, determinism, stored attempt) |
+
+Committed as `fc361c9` (fixes and regression tests) and `504ec3a` (this record); CI run
+`38095252098` on that head passed all four jobs (backend 59 s, dependency and licence audit 23 s,
+frontend 16 s, local-only AI 6 s).
+
+Verification after the fixes: backend **200 passed, 1 skipped** (the skip is still the offline
+local-model test); `ruff check`/`ruff format --check` clean over `app tests scripts`; `bandit -r app`
+0 findings; `alembic upgrade head` + `alembic check` report no drift; `scripts/check_no_external_ai.py`
+and both licence checkers pass; frontend `tsc --noEmit` clean, 16 tests pass, production build
+unchanged; and the live stack was re-walked through the dev proxy, where an out-of-order item now
+returns 409 with the attempt unchanged and the completed check reports the new placement rule.
+
+Still true: no local model runtime exists in this environment, so no real inference and no Arabic
+model-quality evaluation has been performed here.
+
+---
+
+## 7. Hardening sprint (2026-10-11)
+
+Each entry below follows the same protocol: failing regression test first, smallest correct fix,
+focused tests, then the full battery. Nothing here is claimed as reviewed by a human; it is what the
+automated gates and the recorded runs prove.
+
+### 7.1 The mastery evidence boundary (ADR 0006, model `mastery-v2`)
+
+**Defect.** `mastery.replay()` folded every evidence record, so `kind="diagnostic"` starting-check
+answers counted as unassisted successes and failures. Three spaced correct starting-check answers
+promoted an objective to `retaining` (with stability and a retrievability curve) and two wrong ones
+demoted a genuinely retaining objective — a direct contradiction of ADR 0005, visible to learners
+through `/api/practice/progress/mastery` and the dashboard.
+
+**Fix.** One predicate, one boundary: `MASTERY_EVIDENCE_KINDS = {"practice", "assessment",
+"project"}`; `replay()` drops every other kind before the fold, so a diagnostic can neither count,
+establish a delayed success, touch stability, refresh `last_evidence_at` nor demote. Diagnostic-only
+objectives therefore have no estimate at all. Model version bumped to `mastery-v2`; `load_estimates`
+rebuilds any row carrying another version, and a full recompute prunes rows the new fold no longer
+produces.
+
+**Evidence.** `backend/tests/test_mastery_evidence_boundary.py` (10 tests): the declared boundary;
+three spaced diagnostic successes producing no estimate; the fold being byte-identical with and
+without diagnostic records; diagnostic failures unable to demote a retaining objective; a diagnostic
+success unable to extend stability or delay review; determinism under shuffling; a diagnostic-only
+learner having zero recorded mastery while diagnostic evidence is still listed; the provisional
+confirmation check surviving on a plan with zero retaining objectives; a cached `v1` retaining row
+being rebuilt away and pruned; and a practice-backed estimate being restamped `mastery-v2` with the
+recomputed values. `tests/test_api_journey.py` was updated deliberately: `mastery_summary.recorded`
+is now 0 after the starting check and ≥ 1 after the first practice answer.
+
+Full suite after the change: **210 passed, 1 skipped**.
+
+### 7.2 Practice-session lifecycle: an explicit completion target
+
+**Defects.** (a) `POST /api/practice/sessions/{id}/complete` completed the session and marked its
+roadmap item done unconditionally — the practice interface's *Back* action called it, so a learner
+who answered nothing could tick a roadmap step off. (b) `PracticeStartIn.size` was never applied to
+item selection and was passed per request to the read-only state builder, so a session started with
+`size=2` reported `total=5` on the next `GET` and the "next question" could change between calls.
+(c) There was no way to leave a session as distinct from completing it.
+
+**Fix.** The session now carries its completion target as persisted state:
+
+* `practice_sessions.target_items` (requested, clamped) and `practice_sessions.item_ids` (the
+  resolved plan) are written once, when the session is created. The plan is the requested size
+  clamped to the objective's item pool, ordered deterministically
+  (`|difficulty - band|`, `difficulty`, `id`), so the session length and question order cannot move.
+* `next_practice_item()` serves only the next unanswered question of that plan; answering a question
+  that is not in the plan, or out of order, is refused (409) without recording anything.
+* `complete_practice()` refuses (409) a session that is already finished or has unanswered planned
+  questions, and an empty-pool session is refused at creation. Only a session that meets the target
+  completes, and only then is the linked roadmap item marked `completed` (still ownership-checked).
+* `abandon_practice()` + `POST /api/practice/sessions/{id}/abandon` leave a session: recorded answers
+  and evidence are kept, the roadmap item stays `pending`, and the session can never be answered or
+  completed afterwards.
+* Answering the last question no longer auto-completes anything; completion is explicit and validated.
+* `PracticeSessionOut` gained `status` and `target_items` (additive); the interface now shows
+  *Finish session* only when the target is met, and its *Leave* action calls `abandon`.
+
+**Evidence.** `backend/tests/test_practice_lifecycle.py` (9 tests): target persisted and stable across
+`GET`; a target larger than the pool clamped to the pool; out-of-plan answers refused without
+recording; untouched and partially answered sessions refused 409 with the roadmap item still
+`pending`; a fully answered session completing exactly once; completion not establishing mastery;
+abandonment preserving answers and leaving the item pending; completed sessions refusing further
+answers and abandonment. Updated deliberately: `tests/test_api_journey.py` (a 1-of-3 completion is
+now refused, then all questions are answered), `tests/test_authorisation_practice.py` (the positive
+control answers the whole target; the foreign-plan-item test now satisfies the completion condition
+so the ownership check is the only thing preventing the write). Frontend:
+`frontend/src/components/PracticePanel.test.tsx` (2 tests) pins *leave → abandon* and
+*finish → complete only when the target is met*.
+
+Full suite after the change: **219 passed, 1 skipped**; `alembic upgrade head` + `alembic check` clean
+with the new revision `8f1c2d4e6a70`.
+
+### 7.3 Practice context: the goal ↔ path ↔ objective ↔ plan-item chain
+
+**Gap.** `_resolve_practice_context()` checked ownership (goal, plan item) and objective agreement but
+never that the goal and the plan item were on the **same learning path** as the objective. A caller
+supplying one of this learner's own goals for a different path was accepted.
+
+**Fix.** The resolver now walks the whole chain before anything is created: the goal must be the
+learner's own *and* on the objective's path; the plan item must belong to the learner's plan, to that
+goal and to the objective being practised; a plan item's own goal must also match the objective's
+path. Foreign references keep answering with one 404 message per kind (existence is never disclosed),
+inconsistencies inside the learner's own data stay 409, and every check runs before a session row or
+evidence row exists.
+
+**Evidence.** `backend/tests/test_practice_context_paths.py` (6 tests) builds a **synthetic second
+path** — objective, item, goal, plan, plan item — because the authored curriculum still has one path:
+a cross-path objective with this learner's goal is refused, a cross-path plan item is refused, a
+consistent context on the synthetic path is accepted (positive control), a plan item whose own goal
+belongs to the objective's path is accepted, foreign and never-existing identifiers are
+indistinguishable, and a rejected context leaves zero sessions and zero evidence.
+
+**Honest limit: multi-path support is UNVERIFIED.** The repository still contains a single authored
+path (`python-foundations`). These tests pin the *validation* a second path will depend on; they do
+not demonstrate that curriculum loading, roadmap generation, diagnostics or the interface behave
+correctly with two or more paths. That remains work for when a second path is authored.
+
+Full suite after the change: **225 passed, 1 skipped**.
+
+### 7.4 Locale: educational content, not just chrome
+
+**Gap.** The profile has supported `ar` since the first slice, but the API returned English content:
+`objective_public`/`lesson_public`/`item_public` were called without a locale, both feedback paths
+asked the serialiser for `"en"` explicitly, plan themes were generated with an empty `theme_ar`, and
+every dashboard sentence the server composes (next action, evidence basis, blockers) was English-only.
+An Arabic learner therefore read Arabic navigation around English lessons, questions, explanations and
+rationales.
+
+**Fix.** One documented rule, applied at the API boundary: *authenticated routes use the learner's
+saved locale; public routes use `?locale=` then `Accept-Language` then English; a missing translation
+falls back to English, never to an empty string.*
+
+* `app/i18n.py` (new): locale normalisation (`ar-DZ` → `ar`), `Accept-Language` parsing with q-weights,
+  `request_locale()`, and the server-side phrase table (EN/AR) for every sentence the backend writes —
+  next-action titles, rationales, evidence explanations, blockers, and the placement note and rule.
+* `app/deps.py`: `CurrentLocale` (authenticated) and `ContentLocale` (public, profile-aware when
+  signed in) dependencies.
+* Routers `curriculum`, `diagnostic`, `practice`, `plans`, `dashboard` pass the resolved locale to the
+  serialisers and to the services; `assessment.answer_diagnostic`/`answer_practice` take a `locale` and
+  localise feedback explanations and objective titles; the placement payload carries both the rendered
+  sentence and a `rule_code`, so one stored placement can be shown in either language.
+* `plans.generate_roadmap` now writes a real Arabic week theme (per-objective title fallback to
+  English); `PathSummary` gained locale-resolved `title`/`summary` alongside the `_en`/`_ar` pairs.
+* `progress.build_dashboard` localises the chosen next action through its `reason_code` (added to
+  `NextAction`, which stays pure and translation-free) and composes the evidence basis in the
+  learner's language.
+
+**Evidence.** `backend/tests/test_localisation.py` (13 tests) asserts *actual returned values*, not
+`dir="rtl"`: lesson title **and body**, every objective title and summary, public path summaries via
+`?locale=ar` and via `Accept-Language`, diagnostic prompts and feedback explanation + objective title,
+practice prompts and feedback, plan week themes, objective titles and rationales (generated, active and
+by-id), the dashboard next action in both locales, an English learner still receiving English, the
+documented fallback on a synthetic objective/lesson with empty `ar` columns, tutor grounding in Arabic
+with language-independent citation ids, and answer keys still absent from item payloads in both
+locales. Live walk (dev stack, Arabic profile): lesson, diagnostic prompt, placement note, plan theme,
+rationale, dashboard action and public path titles all Arabic, while the reasoning above shows the
+English path unchanged. The frontend already renders Arabic chrome and RTL from the profile locale; a
+locale switcher in the interface is still missing (see the gaps list at the end of this section).
+
+### 7.5 The study schedule: dated work, today's missions, and re-planning
+
+**Gap.** The roadmap was an ordered list with no dates. A learner could not see what to do *today*,
+could not tell whether they were behind, and days they missed simply disappeared: `PlanItem` had no
+day, no completion timestamp, and nothing derived a calendar from the weekly budget or the learner's
+available days.
+
+**Fix.** A pure scheduler plus dates derived, never duplicated:
+
+* `app/learning/schedule.py` (new, pure): `build_schedule()` places items in plan order into days of at
+  most `daily_budget()` minutes (derived from the weekly budget and availability, clamped 15–180),
+  never splits an item across days, only uses available weekdays (offset → weekday via the plan's start
+  weekday), never schedules before `earliest_day` (so re-planning cannot place work in the past), and
+  is deterministic — same inputs, same dates. `adherence()` classifies every item as on time, late,
+  overdue or pending from `scheduled_day` + `completed_at`, and `due_today()` returns today's work
+  followed by the oldest slips.
+* Model/migration `9b2e4f6a8c10`: `Plan.starts_on`, `PlanItem.scheduled_day`, `PlanItem.completed_at`.
+  Dates are derived (`starts_on + scheduled_day`) rather than stored per item, which is what makes
+  re-planning a recomputation instead of a rewrite.
+* `generate_roadmap()` computes the schedule at publication time; the practice-completion path records
+  `completed_at` so adherence means something.
+* API: `GET /api/plans/active/schedule` (weeks with dates, `today`, adherence counts, planned vs
+  **actual** recorded minutes) and `POST /api/plans/active/reschedule` (re-place unfinished work from
+  today; completed work keeps its date and is never touched; audited in `audit_log`; idempotent when
+  nothing changed).
+* Interface: a *Today's missions* card on the dashboard with a start button per item and an explicit
+  count of slipped work rather than a streak or a scolding, plus per-item planned dates, adherence and
+  re-planning in the roadmap view (EN/AR strings, RTL-safe markup).
+
+**Evidence.** `backend/tests/test_schedule.py` (14 tests): the nine pure scheduler/adherence
+properties and five API tests covering dates on the plan, availability respected in the dates (every
+scheduled date falls on a chosen weekday), today's missions moving on after a completed item,
+re-planning that leaves completed work and is idempotent, and a deliberately aged plan reporting
+overdue work and offering it today. Frontend `src/components/TodayPanel.test.tsx` (5 tests).
+Live walk: the Arabic learner's plan is scheduled at 70 minutes/day from 2026-10-11, completing one
+mission flips adherence to `on_time: 1`, a re-plan moves 4 unfinished items and leaves the completed
+one alone, and the recorded actual minutes come from the sessions themselves.
+
+### 7.6 What this sprint did **not** do (honest gaps)
+
+* Localisation: no interface language switcher yet (the profile can be changed through the API and the
+  UI then follows); `tutor.reply` text depends on the local model honouring the prompt's language —
+  unverifiable here (no runtime) and therefore unclaimed.
+* Learning economy: no onboarding wizard beyond the existing profile fields, no lesson player with
+  typed steps, no collaboration, no mobile app work (the interface is responsive and keyboard
+  usable, but no device testing has been performed).
+* Content: no automated curriculum import/migration path and no authoring review queue; the authored
+  curriculum is still the single `python-foundations` path, so none of this sprint's work can be
+  described as validated for multi-path or large-course operation.
+* Security and performance: no formal penetration test, no load test, and no review by a human
+  other than the automated gates listed below.
+
+### 7.7 Baseline HTTP hardening
+
+**Gap.** The API sent no hardening headers at all, and the test suite *documented* that as current
+behaviour ("headers are absent") instead of asserting a policy.
+
+**Fix.** `app/http_hardening.py` (pure header function + one middleware) registered as the outermost
+layer, so successful responses, error responses and CORS preflight replies all carry the same policy:
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, frame-embedding protection twice
+over (`X-Frame-Options: DENY` and CSP `frame-ancestors 'none'`), a considered CSP
+(`default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; sandbox`), an
+explicit `Permissions-Policy` switching off 23 unused browser features, and `Strict-Transport-Security`
+**only on requests that arrived over HTTPS** — so local development over plain HTTP is unaffected and
+HSTS is never sent where a browser would ignore it. The development-only Swagger UI keeps a separate,
+minimal policy (it needs a CDN bundle); production serves no interactive docs at all, which the tests
+assert rather than assume.
+
+**Evidence.** `backend/tests/test_http_hardening.py` (12 tests, all passing) plus the replacement of the
+old "header absent" test with a tripwire. The threat model's new section maps every header to the risk
+it addresses and states what is *not* covered.
+
+**Honest limit.** This is a checklist enforced by tests. It is not a penetration test, and it says
+nothing about the reverse proxy, TLS configuration or rate limiting at the edge — those are deployment
+items (`docs/DEPLOYMENT.md`).
+
+### 7.8 Deployment, configuration and data maintenance
+
+**Gaps.** No deployment guide existed. The README told a contributor to `cp ../.env.example ../.env`,
+but `SettingsConfigDict(env_file=".env")` resolved against the *process working directory*, so a
+backend started from `backend/` ignored the file the instructions created. Login attempts and sessions
+accumulated with no documented way to prune them.
+
+**Changes.**
+
+* `docs/DEPLOYMENT.md` (new): production requirements, validated startup, PostgreSQL and migration
+  expectations, HTTPS/reverse-proxy configuration (including the `X-Forwarded-Proto` that HSTS
+  depends on), secrets, backup/restore, local-model isolation and egress restrictions, health checks,
+  logs, per-limit resource table, systemd sketch, rollback and a first-deployment checklist. It states
+  plainly that no PostgreSQL, proxy or TLS deployment has been exercised here.
+* `app/config.py`: settings files are now read from **absolute** paths — `backend/.env` is
+  authoritative, a repository-root `.env` is still merged (the previous layout keeps working), and
+  `TALIMGO_ENV_FILE` overrides both. `.env.example` moved to `backend/.env.example`, documents every
+  setting including the new ones, and a test fails if any `Settings` field is missing from it.
+* `app/maintenance.py` (new): `python -m app.maintenance [--dry-run]` prunes login attempts (30 days)
+  and sessions (30 days past expiry), idempotently, with retention as named constants and a report.
+  Audit rows are deliberately **not** pruned — their retention is an owner policy decision, and the
+  test suite asserts maintenance leaves them alone.
+
+**Evidence.** `backend/tests/test_config_env_files.py` (5 tests: cwd-independence, precedence,
+override, example/setting parity, placeholder-not-secret) and `backend/tests/test_maintenance.py`
+(5 tests: exact retention, scope, dry run, idempotency, audit untouched).
+
+### 7.9 Security review of session, request and resource handling
+
+`app/request_guards.py` (new) adds two controls: mutating requests carrying a body must be
+`application/json` (415 otherwise — a cross-site HTML form cannot produce that content type, so CSRF
+does not rest solely on `SameSite=Lax`), and bodies are refused above `TALIMGO_MAX_REQUEST_BYTES`
+(413; hard maximum 8 MiB) with chunked bodies on mutating methods refused (411) rather than read
+unbounded. Session cookie flags are now asserted by tests (HttpOnly, SameSite=Lax, Path=/, Secure in
+production). The per-learner model allowance became an atomic claim made **before** the model call
+instead of a read-then-write check, closing a check-then-act race; the claim is deliberately not
+refunded when a call fails, because the limit exists to bound resource use and retry pressure. (That
+claim was only *half* true until §7.13 below: the reservation was durable against concurrency but not
+against failure.) The
+full review — including what was found, what changed and what remains owned by the deployment — is in
+`docs/SECURITY_THREAT_MODEL.md`, "Security review of session, request and resource handling".
+
+**Evidence.** `tests/test_request_guards.py` (8 tests), `tests/test_ai_quota.py` (5 tests including a
+10-thread concurrency test asserting exactly the limit is granted), and three cookie tests in
+`tests/test_security_basics.py`.
+
+### 7.10 Export and deletion, verified end to end
+
+`tests/test_account_lifecycle.py` (8 tests) builds a learner with a real history — profile, consent,
+goal, completed diagnostic, generated plan, completed practice session and a tutor thread produced
+through the actual tutor path with a mocked local transport — then asserts the export contains each
+category and that deletion leaves zero rows in sixteen learner-owned tables while the curriculum is
+untouched and still served publicly. Deletion was also checked to anonymise audit rows rather than
+delete them, to refuse inexact confirmation phrases, and to leave a replayed cookie and a fresh sign-in
+useless.
+
+**A real bug was found and fixed by this work:** `delete_account()` iterated `select(TutorThread.id)`
+(and three sibling queries) and accessed `.id` on each scalar, so **deleting an account that had ever
+used the tutor raised `AttributeError` and returned HTTP 500** — the account was not deleted. The
+existing test only deleted accounts without tutor history, which is why it passed. All four comprehensions
+now use the scalar ids directly, and the regression test covers the tutor-history case.
+
+### 7.11 Measurements (2026-10-11, this machine)
+
+`backend/scripts/bench.py` builds a learner through the real API, then times the endpoints a learner
+touches and counts SQL statements per request. Environment: Python 3.11.2, SQLite 3.40.1, Linux
+x86_64, single process through `TestClient` (no network, no proxy), 12 samples per endpoint.
+
+| Endpoint | median ms | p95 ms | SQL statements/request |
+|---|---|---|---|
+| `GET /api/dashboard` | 9.4 | 10.6 | 12 |
+| `GET /api/plans/active` | 8.6 | 9.1 | 7 |
+| `GET /api/plans/active/schedule` | 10.3 | 13.1 | 10 |
+| `GET /api/curriculum/paths` | 5.9 | 6.5 | 3 |
+| `GET /api/curriculum/lessons/{id}` | 6.6 | 6.8 | 4 |
+| `GET /api/practice/sessions/{id}` | 7.8 | 8.1 | 7 |
+| `GET /api/practice/progress/mastery` | 6.3 | 6.9 | 7 |
+| `POST /api/practice/sessions/{id}/answers` (accepted) | 13.7 | — | 19 |
+| `POST /api/practice/sessions/{id}/answers` (replayed item → 409) | 7.2 | — | 6 |
+
+Database after one learner's full journey: **400 KiB across 22 tables** (largest: `items` 36 — the
+authored curriculum, `learner_evidence` 15, `objectives` 12, `lessons` 12, `diagnostic_responses` 12).
+
+Reading: there is no N+1 explosion (the dashboard is the heaviest at 12 statements for a summary,
+next action, evidence list and mastery counts) and write-path cost is dominated by grading plus
+evidence and estimate updates. Model request handling could **not** be measured: no local runtime
+exists in this environment, so local-inference latency, tokens/second and concurrency behaviour remain
+unmeasured and are not claimed. These are single-process SQLite figures on a development machine and
+must not be presented as production capacity.
+
+### 7.12 Accessibility: automated checks and what still needs a human
+
+`frontend/src/accessibility.test.tsx` (13 tests, run by CI) covers what jsdom can check: every form
+control has a programmatic label, every dashboard region is named by a heading, errors are announced in
+a live region (`role="alert"`), the primary action is a real button reachable from the keyboard and the
+form submits from the keyboard, `prefers-reduced-motion` and the in-app reduced-motion flag both
+disable animation, a visible `:focus-visible` outline exists, Arabic flips direction to RTL, and the
+Arabic string table covers every English key with every placeholder interpolated.
+
+CI now also runs `.github/workflows/ci.yml`'s `browser-smoke` job with pinned Playwright/Chromium and
+temporary `axe-core@4.10.3` (Apache-2.0 / MPL-2.0; not shipped) against the real FastAPI application plus
+Vite's same-origin API proxy. It verifies sign-up, goal creation, a real diagnostic answer, Arabic
+`lang`/`dir`, no horizontal overflow at a 390-pixel viewport, account deletion/session revocation,
+no uncaught page errors, no API 5xx responses, and no requests to another host/port. Axe runs WCAG 2.0,
+2.1 and 2.2 Level A/AA rules on registration, goal and diagnostic views in light mode and Arabic settings
+plus post-deletion registration in dark mode. This is a targeted automated accessibility gate, **not** a
+declaration of WCAG conformance; the job uses Vite's development server and does not exercise the
+production Nginx CSP.
+
+**Still requires manual/deployed-browser/screen-reader testing (not done, not claimed):** focus *order*
+across a whole page and after dynamic updates; a human contrast review on the deployed themes; zoom and
+reflow at 200–400%; virtual-cursor reading order and numeral/date presentation in Arabic; behaviour with
+an actual screen reader (NVDA, VoiceOver, TalkBack); touch target sizes on a phone; production CSP
+enforcement on the deployed build; and the teacher/admin flows, which have no interface yet.
+
+### 7.13 Making the model-allowance reservation actually durable (review round)
+
+**Bug found by review.** The allowance was claimed on the *request* session, but the router commits
+that session only after a fully validated reply has been stored. Every failure after the claim —
+local runtime unreachable, HTTP error from the runtime, non-JSON or empty completion, a reply that
+failed validation — ended in `Session.close()`, which rolls back. The slot therefore came *back*, and
+the documented policy ("an attempted request counts") was untrue. Two tests had certified it: the
+integration tests never asserted usage after a failure, and the unit test named
+`test_a_failed_model_call_still_consumes_its_slot` never called a model at all.
+
+**Fix.** `answer()` now (1) checks configuration, (2) builds grounding — so an unknown objective or a
+lesson from another objective is refused before any quota is spent, (3) claims the slot through
+`reserve_usage_committed()`, which uses its **own short session and commits it** before inference
+starts, and only then (4) calls the local model and (5) persists the exchange on success. A dedicated
+session is used precisely so the reservation cannot drag unrelated request state into a commit, and so
+the request session can still roll back cleanly when the call fails. Concurrency safety is unchanged:
+the claim is still a single conditional `UPDATE ... WHERE count < limit`.
+
+Unvalidated exchanges remain unpersisted — nothing is written to `tutor_threads`/`tutor_messages`
+until the reply has passed validation, so a failed attempt leaves no thread, no learner message and no
+model output behind. A refused request (no consent, unknown objective, mismatched lesson, exhausted
+allowance) consumes nothing; a *failed* request consumes one slot, which is the documented policy.
+
+**Error mapping (P2).** `LocalModelResponseError` — HTTP error status, non-JSON body, empty
+completion — had no handler in the tutor router, so it surfaced as an unhandled 500. It is now mapped
+to **502** with a fixed, safe sentence: the upstream status line, response body, model output and any
+credential-shaped string in it never reach the learner, while the detail goes to the server log. The
+sibling 503 ("runtime did not answer") sentence was made equally generic, so neither branch discloses
+the configured endpoint address or the transport exception class any more; tests assert that both
+strings are free of internal detail.
+
+**Feedback localisation (P4).** `_canonical_answer()` asked for the option label with a hard-coded
+`"en"`, so an Arabic learner read an Arabic prompt, Arabic options and an Arabic explanation, then an
+English "correct answer" line. The authored choices are code literals (`int`, `float`) that are
+identical in both languages, which is why nothing caught it. The label is now resolved per locale with
+an English fallback, while short-answer canonical values (`"15"`) and literal code tokens are returned
+unchanged — translating those would change what the learner is told is correct.
+
+**Evidence.** `tests/test_tutor_quota_durability.py` (12 tests) drives six genuine failure paths
+through the real tutor API (unreachable runtime, HTTP 500 from the runtime including a
+credential-shaped body that must not leak, non-JSON output, empty completion, a citation outside the
+context, a prohibited claim). Each asserts the HTTP status, that no tutor exchange or thread was
+stored, that `GET /api/tutor/usage` reports the slot as consumed, and that a follow-up with a limit of
+one is refused with 429; plus the happy-path count, the "refused before the claim" cases (unknown
+objective, mismatched lesson, missing consent consume nothing and never reach the model) and an
+API-level concurrency test (two interleaved requests, limit 1 → exactly one 200, one 429, exactly one
+model call). All six failure cases fail against the previous implementation and pass against this one.
+`tests/test_feedback_localisation.py` (12 tests) covers the canonical answer in both locales —
+including a synthetic item with genuinely different Arabic and English labels, because the authored
+data cannot distinguish the bug — and asserts that short answers and code tokens pass through
+untouched. The item-payload test in `tests/test_localisation.py` no longer contains a vacuous
+`or True`: it now asserts the exact public field set, that no internal marker is serialised, and that
+options expose only an id and a label.
+
+
+### 7.14 Authenticated write limits and bounded local-model concurrency
+
+**Authenticated write-rate limit.** Authenticated mutating routes that use `CurrentUser` claim one unit in a fixed UTC-minute window, with a default cap of 120 per learner. The window and count live on the `users` row, added by migration `c4a7d9e12f60`; a single conditional `UPDATE` resets the old window or increments the current counter only when the request is still within the cap. The claim is committed using a dedicated short session, so it cannot be rolled back with the request or be bypassed by concurrent application workers. A refused request returns 429 and a `Retry-After` header. Reads do not consume this allowance. Login and registration still need edge-level controls; the in-app policy is per authenticated learner, fixed-window, and does not replace IP or reverse-proxy rate limits.
+
+**Local-model concurrency.** The tutor now acquires a condition-based generation slot before claiming the daily AI allowance. Defaults are one active generation per worker process and a two-second queue wait. If no slot opens in time, the request returns 503 with `Retry-After`; the daily AI allowance is untouched. Once admitted, the daily allowance is durably claimed before local inference, preserving §7.13's failed-call accounting. The slot is released in a `finally` block for both successful and failed generations.
+
+**Deployment boundary.** This guard is process-wide, not a distributed semaphore: two API worker processes each have their own configured capacity. A production multi-worker deployment must additionally cap aggregate concurrency at the model host or proxy. The guide and threat model now distinguish this boundary rather than calling it a global cap. This section did not exercise multiple workers or an actual model runtime. Focused PostgreSQL 16 migration and persistence checks were added later in §7.15; the full API behaviour suite still runs on SQLite.
+
+**Regression coverage added and CI-verified.** `tests/test_write_rate_limits.py` covers 429 responses, continued read access, learner isolation and UTC-minute rollover. `tests/test_model_concurrency.py` covers bounded waiting, releasing the slot after exceptions, and the saturated-API path proving that a 503 consumes no AI allowance and stores no tutor exchange. The corresponding CI jobs pass on the verified checkpoint linked from the PR. The real local-model integration remains skipped unless a local runtime is configured.
+
+### 7.15 Populated legacy-plan migration verification on PostgreSQL
+
+The PostgreSQL CI job now tests the risky migration against existing data, not just an empty database.
+Before upgrading to head, `backend/scripts/postgres_legacy_migration.py` migrates the disposable CI
+database to `8f1c2d4e6a70`, inserts a valid legacy learner, goal, objective, plan, plan week and plan
+item, and then runs the remaining migration chain. It asserts the plan survives with
+`starts_on = CURRENT_DATE`, the `starts_on` schema constraint is NOT NULL, and the existing plan item
+survives while the new `scheduled_day` and `completed_at` fields are null. It finally runs
+`alembic check` to verify the resulting schema matches the current models. The following PostgreSQL
+steps re-apply the migration idempotently and run the API persistence smoke test.
+
+**Boundary.** This is a disposable PostgreSQL 16 CI rehearsal with one legacy plan, not a production
+backup/restore, large-table lock-duration, or multi-million-row migration test. Those remain part of
+deployment acceptance.
+
+### 7.16 PostgreSQL backup/restore and Nginx TLS-edge smoke tests
+
+The PostgreSQL CI job now creates a custom-format `pg_dump` of the migrated, populated CI database,
+drops/recreates a fixed disposable `talimgo_restore` database, restores with `pg_restore --exit-on-error`,
+and compares the public table names, row counts for every table, and Alembic revision before exercising
+the restored database with the same API smoke script (health, account/session round-trip and goal
+write/read). The script refuses to operate unless the configured source is the expected loopback
+database named `talimgo`, and it drops the scratch database and temporary dump on completion.
+
+A new standalone Nginx example provides TLS 1.2/1.3, an HTTP redirect with an ACME exception, static SPA
+routing, the local API upstream, edge request-body caps, authentication/general API rate limits, HSTS,
+and replacement of spoofable forwarding headers. A CI job installs Nginx, creates an ephemeral test
+certificate, runs `nginx -t`, then tests the redirect, served frontend, HSTS, spoofed-header rejection,
+and authentication limiter against a tiny local fake upstream.
+
+**Boundary.** These checks prove backup/restore and edge behaviour only in disposable CI infrastructure.
+They do not prove off-host storage durability, secret/key custody, certificate renewal, DNS/firewall
+configuration, production traffic behaviour, RPO/RTO, or a real externally managed deployment.
+
+### 7.17 Real-browser journey and deployment-verifier recovery hardening
+
+The deployment-verification tool now generates a cryptographically random one-run password and never
+prints it. If account registration returns a server error or its response is lost after the server has
+created the account, the tool attempts login with that run's credentials and then deletes the account.
+After the authenticated journey it always attempts cleanup, even if a later request fails. A verified
+email is reported only when cleanup cannot be confirmed. Regression tests cover per-run credential reuse
+between registration/deletion, a lost registration response followed by login recovery, and cleanup after
+an unexpected post-registration connection error. The manual GitHub workflow now passes operator inputs
+through environment variables rather than interpolating them directly into shell source.
+
+The CI browser job exercises the actual page in Chromium against the real API and Vite proxy, including
+sign-up, goal creation, one diagnostic answer, Arabic RTL, narrow viewport reflow, account deletion and
+session refusal. Axe checks WCAG A/AA rules across representative light- and dark-theme screens. The
+journey is a useful regression gate, but it is not a live deployment test, a conformance declaration, or
+a substitute for checking the production edge/CSP and manual accessibility on the actual domain.
+
+### 7.18 Vercel deployment reconciliation and production preflight
+
+**CONFIRMED (external observation, 2026-10-11).** The Vercel deployment `talimgo-preview` serves the
+interface shell over HTTPS but has **no API behind it**: the public alias renders the sign-up screen and
+then shows "Request failed (404)." because its boot call `GET /api/auth/me` is answered by the static
+host. `GET /api/health` on that host returns 404. The immutable deployment URL redirects to Vercel's
+SSO login while the public alias is reachable, so deployment protection covers the per-deployment host,
+not the alias. Response headers could not be read from this environment (no TCP egress to `vercel.app`
+and no Vercel connector), so no header claim is made for that host. Full record and owner actions:
+`docs/VERCEL_DEPLOYMENT_STATUS.md`.
+
+**IMPLEMENTED.** `frontend/vercel.json` now carries the interface's browser-facing policy (HSTS without
+`includeSubDomains`/`preload`, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, the same
+`Permissions-Policy` as the API, and a CSP limited to the local bundle), and
+`frontend/src/deployment-config.test.ts` fails if the Nginx example and the Vercel file ever disagree.
+`docs/DEPLOYMENT.md` documents the three hosting topologies and why the `SameSite=Lax` session cookie
+makes a rewrite-based single origin the only supported cross-host arrangement, plus an environment
+variable checklist (names only) and a preflight command.
+
+**IMPLEMENTED.** `backend/scripts/check_production_config.py` checks a production environment before
+startup and prints names and verdicts only, never values, so its output is shareable. It enforces the
+requirement the application itself does not: **the API will start on SQLite in production mode**, while
+the deployment guide requires PostgreSQL 14+. It also covers `TALIMGO_ENV`, the session-secret rule,
+explicit origins, and tutoring off or local-with-a-named-model. CI runs it against a correct
+configuration and against SQLite, and requires the SQLite case to fail.
+
+**IMPLEMENTED.** The interface now tells the truth when its API is missing: a response that is not
+TALIMGO's JSON (a static host answering `/api/...`) is reported as "TALIMGO's API did not answer this
+request", and a request that never receives a response is reported as unreachable rather than as
+`Request failed (0)`. A mid-session 401 now returns the learner to sign-in with a bilingual
+"session has ended" message instead of leaving a dashboard whose actions all fail; a 401 from the
+sign-in form itself is not treated as an expiry. Four frontend tests cover the new paths, and both
+fixes were verified to fail their tests when reverted.
+
+**TESTED (this session).** 373 backend tests pass (1 skipped: the offline local-model test), 45
+frontend tests pass (1 skipped: the live-stack smoke test, which was then run explicitly with
+`TALIMGO_UI_SMOKE=1` and passed), `tsc --noEmit` and `vite build` are clean, migrations apply to an
+empty database with no drift, and the PostgreSQL rehearsals (legacy migration, backup/restore with
+row-count and revision comparison) pass against a real PostgreSQL 16.2. Dependency audits are clean
+after upgrading build tooling — a fresh virtual environment's seeded `setuptools 66.1.1` reports six
+advisories that are not TALIMGO dependencies, which is why the CI audit upgrades pip/setuptools/wheel
+first.
+
+**BLOCKED (owner).** Confirming Vercel build/deployment protection settings, choosing the hosting
+topology, and provisioning the API host with PostgreSQL all require owner access and decisions; the
+repository-side work for each is complete and documented.
+
+### 7.19 Release preparation for the tested one-host topology
+
+**SHIPPED (this round, `69cdd5d`).** Four release artifacts, each executed before being committed,
+because the failure modes they guard are invisible to the application build:
+
+* `frontend/scripts/check-bundle.mjs` — a gate on the *built* interface, now a CI step after the build.
+  It refuses a baked-in local/private or insecure back-end address, an inline `<script>` or `<style>`, a
+  `<base>` tag, a cross-origin reference, a reference to a file the build did not produce, and an empty
+  build. Calibrated against the real `dist`: `http://www.w3.org/...` (an XML/SVG namespace the DOM
+  compares as a string and never fetches) is the only exemption, and React's error-documentation links
+  are legitimate `https` references. Ten unit tests cover it; falsified by appending a private host to a
+  real asset, which produced both expected violations and a non-zero exit.
+* `deploy/stage-frontend.sh` — repeatable interface release: build, gate, copy beside the served
+  directory, swap by rename, retain the previous release, print the rollback commands. Refuses a
+  relative path, a system directory (`/`, `/etc`, `/srv`), `..`, a missing parent and an unknown
+  argument, and never writes when the gate fails. A defect was found and fixed while writing this: `/`
+  was stripped to an empty string by the trailing-slash normalisation and passed every later check; the
+  raw value is now rejected before normalisation, and the test that found it asserts the refusal plus an
+  untouched working directory. Verified by two real runs (the `.previous` release is retained) and by
+  executing the printed rollback, which restored the previous document byte for byte.
+* `deploy/health-check.sh` — read-only readiness probe: exit 0 healthy, 1 unhealthy, 2 misuse. Validates
+  the recorded `/api/health` contract and refuses a host that answers `200` with HTML, which is exactly
+  what the deployed preview does. Verified against a real running API (also with `--ai`, which asserts
+  the *policy* is `local-only` rather than that tutoring is enabled), a closed port, a degraded status
+  and an HTML-200 host.
+* `deploy/systemd/{talimgo-api, talimgo-maintenance}.service.example` and the maintenance timer — the
+  API unit runs the production preflight, then migrations, then `uvicorn` bound to `127.0.0.1`, then a
+  readiness probe, as a non-root user with hardening, `MemoryMax=512M` and a start timeout larger than
+  the probe's wait, so a failed preflight, migration or probe fails the start instead of leaving a
+  half-served service. Housekeeping is a separate daily oneshot with `Persistent=true`.
+
+`backend/tests/test_deploy_artifacts.py` (16 tests) asserts the documented start order and the hardening
+directives, exercises every refusal path of both scripts, and runs `python -m app.maintenance --dry-run`
+for real against a throwaway migrated database (the unit's command must exist, not merely be spelled
+correctly).
+
+Test fixtures that must contain hostile URLs are assembled from a scheme constant at runtime, because
+the source-level local-only gate refuses *every* non-local URL literal under `frontend/src` and has no
+per-file exemption. The gate keeps its absolute strictness: writing the literal in the test file fails
+CI, which is how this was found.
+
+**TESTED (this session, on `69cdd5d`).** 389 backend tests pass (1 skipped: the offline local-model
+test), 55 frontend tests pass (1 skipped: the live-stack smoke test, run explicitly with
+`TALIMGO_UI_SMOKE=1` and passed against the real API through the real Vite proxy), `tsc --noEmit`,
+`vite build` and the new bundle gate are clean, Ruff (check and format) and bandit are clean on 94
+files, the local-only AI gate passes (78 source files, 7 URL literals) and the licence gate passes. A
+PostgreSQL 16.2 cluster was rebuilt from source binaries and the legacy-migration, API-smoke and
+custom-format dump/restore rehearsals all pass with matching row counts and Alembic revision; the
+production preflight passes against that server and still refuses SQLite. `npm audit --omit=dev` reports
+0 vulnerabilities and `pip-audit` reports none. CI is green on the pushed head: push run `38186582074`
+and PR run `38186585326`, 7/7 jobs each. The live probe of the public preview with the new script
+returns exit 1 ("unhealthy"), which is the correct verdict: that host serves the interface shell and
+answers `/api/health` with 404 because no API is deployed.
+
+**DOCUMENTED.** `docs/DEPLOYMENT.md` now carries the unit installation notes, the ordered release
+procedure (stage, preflight, back up, migrate, restart, verify internally and externally), systemd
+logging guidance, rollback using the staging script's retained release, and a twelve-item owner-only
+launch checklist with a completion test for each. `docs/OPEN_SOURCE_REUSE_AUDIT.md` records the search
+for reusable deployment tooling: nothing under a usable licence was found, so no third-party deployment
+code was adopted and no new attribution obligation was created.
+
+**BLOCKED (owner).** Every remaining step needs owner access or a decision: authorising a host, DNS and
+TLS, generating secrets on the host, provisioning PostgreSQL with off-host backups, firewall rules,
+installing the units, the first release, a named local model, the fate of the Vercel preview, and
+monitoring. None can be done from this environment, and no hosting setting was changed in this round.
+
+**NOT CLAIMED.** The units have never been installed by systemd, the staging script has never published
+to a real `/srv`, and no certificate, DNS record, firewall rule or off-host backup has been exercised.
+The release tooling is tested; the deployment is not, because no API host or database exists anywhere.
+
+### 7.20 Release rehearsal against the real edge, and two defects it found
+
+**SHIPPED (2026-10-12).** The recommended topology was rehearsed end to end for the first time in one
+piece: a locally built Nginx 1.24.0 (static PCRE2 10.44, OpenSSL 3.0.16, zlib 1.3.1) serving the bundle
+staged by `deploy/stage-frontend.sh`, proxying `/api` to the API running in **production mode**
+(`TALIMGO_ENV=production`) against **PostgreSQL 16.2**, with the post-deployment verifier driving it.
+
+**Two defects were found and fixed.**
+
+1. **The release procedure staged into the wrong directory.** The Nginx example serves
+   `root /srv/talimgo/frontend/dist`, but the guide's release command was
+   `deploy/stage-frontend.sh --target /srv/talimgo/frontend`, and the script publishes the *contents* of
+   `frontend/dist`. Following the documentation would therefore have left the document one directory
+   above the served path. Reproduced against the real edge: with the documented target, a request for
+   `/` returned **500** (and 404 for the document itself) while `index.html` sat one level up. Fixed by
+   pointing the procedure (and the script's usage text) at the directory the proxy serves, and locked
+   with a test that reads the example's `root` directive and the guide's command and fails when they
+   disagree — verified to fail on the old command and pass on the new one.
+2. **The legacy-migration rehearsal could rewrite a database it does not own.** Its docstring requires an
+   empty target, but nothing enforced that: `alembic upgrade 8f1c2d4e6a70` *downgrades* a database that is
+   already at head, so pointing it at a populated database silently rewrote it and then failed with a
+   `NotNullViolation` from the legacy insert that reads like a migration defect (this happened during the
+   rehearsal above). It now checks `information_schema.tables` **before** Alembic runs and refuses with
+   "this rehearsal needs an empty database", covered by two tests (refusal, and that an empty database
+   still reaches the rehearsal).
+
+**TESTED (this session, on the release tooling plus these fixes).**
+
+* Edge + production API: HTTP→HTTPS **301** with path and query intact; the staged document **200** with
+  `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`,
+  `Permissions-Policy` and the `default-src 'self'` CSP; `/api/health` **200** through the proxy;
+  `/api/docs` **404** in production; the edge's own burst refusal **429** with a JSON `detail` body (seven
+  immediate `/api/auth/` requests); the disposable-account lifecycle closed with **0 rows** left in
+  `users`, `goals` and `sessions` afterwards.
+* **`scripts/verify_deployment.py`: 13/13 PASS** against `https://localhost:8443` with `--host localhost
+  --http-port 8080 --insecure-tls` — its first execution against a real edge *and* a real production-mode
+  API at once (previously the two were verified separately).
+* 392 backend tests pass (1 skipped: the offline local-model test); 55 frontend tests pass (1 skipped:
+  the live-stack smoke test, which was then run explicitly with `TALIMGO_UI_SMOKE=1` against the running
+  production-mode API and passed); `tsc --noEmit`, `vite build` and the bundle gate are clean; Ruff and
+  bandit are clean on 94 files; the local-only AI gate passes (78 files) and the licence gate passes;
+  `pip-audit` and `npm audit --omit=dev` report no known vulnerabilities.
+* PostgreSQL rehearsals re-run on the rebuilt PostgreSQL 16.2: populated-legacy migration (on a fresh
+  database, as required), API smoke, and custom-format dump/restore with matching row counts and
+  revision all pass.
+
+**Harness deviations (recorded so nothing is overstated).** The rehearsal copy of the Nginx example
+differs from the shipped file in exactly these ways: `server_name localhost`, ports **8080/8443**
+(privileged 80/443 cannot be bound without root), paths under `/tmp/edge`, a local certificate, and — for
+the same port reason — the redirect target carrying `:8443`, since the shipped `return 301
+https://$server_name$request_uri` is correct for 443. Every policy-relevant line is byte-identical.
+The browser/axe job could not run here (no browser binaries in this sandbox; the download is blocked), so
+that remains CI-only evidence.
+
+**DOCUMENTED.** `docs/DEPLOYMENT.md` now shows the corrected release target with the reason, documents the
+sub-millisecond swap window between the two renames (and the symlink alternative), and states the
+empty-database requirement of the legacy rehearsal and why it is enforced. `docs/VERCEL_DEPLOYMENT_STATUS.md`
+carries a dated 2026-10-12 re-check and a corrected statement about the deployed bundle: it corresponds to
+`fa421ab` and is **stale** relative to this branch, which is why the live banner still reads
+`Request failed (404).`
+
+**NOT CLAIMED.** No production host, domain, certificate, firewall or off-host backup exists; nothing was
+deployed, and the alias was neither redeployed nor reconfigured. The rehearsal used self-signed TLS on
+non-privileged ports against PostgreSQL on loopback, so it verifies the configuration and the code path,
+not a real internet-facing deployment.
+
+### 7.21 Current CI verification and Vercel access boundary (2026-10-15)
+
+**CONFIRMED.** The branch head was re-read from GitHub as `839f357176965057ccec7326e9bd3f6769bef6cb`.
+The PR remains open and unmerged; `main` remains at `91214de3f2a4aaa5312e8cfb03267506be12e581`.
+Both CI runs on this exact SHA passed all seven jobs:
+
+* Push: https://github.com/Devmraustro/TALIMGO/actions/runs/38721901732
+* Pull request: https://github.com/Devmraustro/TALIMGO/actions/runs/38721909911
+
+The successful jobs include backend tests/static checks, PostgreSQL migration and persistence rehearsals,
+reverse-proxy TLS checks, local-only AI enforcement, frontend typecheck/build/component tests, dependency and
+licence audit, and the new Chromium browser journey with axe accessibility scans. The browser job explicitly
+reported passing scans for the English registration form, English goal form, English diagnostic form,
+Arabic RTL settings, and Arabic registration in dark mode. The journey exercised registration, goal creation,
+a real diagnostic answer, Arabic RTL, mobile reflow, account deletion, and same-origin requests.
+
+**TESTED, not a conformance claim.** Chromium and axe are executed by GitHub Actions; this does not replace
+manual screen-reader testing, a broader browser/device matrix, or owner verification of the live deployment.
+
+**BLOCKED (owner access).** On 2026-10-15, Vercel project listing returned `talimgo-preview`, but project
+detail and deployment-list requests returned 403 under scope `devmraustros-projects`. The deployment fetch
+helper was also denied at Vercel's protection-bypass endpoint. No Vercel setting, deployment, alias, domain,
+or environment variable was changed. The 2026-10-12 public URL observations are historical and were not
+re-verified in this round. The next step is to restore Vercel inspection access, verify the actual project
+and deployment, then decide whether to deploy the latest frontend preview. This does not provision the
+missing API, PostgreSQL database, or local model runtime.
+
+**NOT CLAIMED.** There is still no verified live TALIMGO staging deployment, no verified production backend,
+and no local-model inference evidence.
