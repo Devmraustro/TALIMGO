@@ -5,6 +5,11 @@ tested for the properties that matter even though this environment cannot start 
 order the deployment guide promises, the hardening directives, and the refusal paths of the scripts.
 The behaviours that need a real host (installing units, serving through Nginx, a real certificate) are
 listed as untested in docs/DEPLOYMENT.md.
+
+The shell helpers are real programs, so they are really executed: CI runs this suite on Ubuntu,
+where `bash` is on `PATH`; a Windows developer runs them with Git for Windows' Bash, which
+`tests.deploy_shell` locates and adapts (paths, interpreter). Nothing here is skipped for lack of a
+shell — a missing shell is reported as a failure with the reason.
 """
 
 from __future__ import annotations
@@ -19,6 +24,8 @@ import threading
 from pathlib import Path
 
 import pytest
+
+from tests.deploy_shell import ShellUnavailable, run_bash, run_script
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BACKEND = REPOSITORY_ROOT / "backend"
@@ -40,15 +47,56 @@ def unit_directives(path: Path) -> dict[str, list[str]]:
     return directives
 
 
-def bash(script: Path, *arguments: str, timeout: float = 30) -> subprocess.CompletedProcess:
-    return subprocess.run(["bash", str(script), *arguments], capture_output=True, text=True, timeout=timeout)
+def shell(*arguments: str, timeout: float = 30) -> subprocess.CompletedProcess:
+    """Run the shell itself (a syntax check, a `command -v` probe)."""
+    try:
+        return run_bash(arguments, timeout=timeout)
+    except ShellUnavailable as error:
+        pytest.fail(str(error))
+
+
+def bash(
+    script: Path,
+    *arguments: str,
+    timeout: float = 30,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess:
+    """Run one of the checked-in deployment scripts."""
+    try:
+        return run_script(script, *arguments, timeout=timeout, cwd=cwd)
+    except ShellUnavailable as error:
+        pytest.fail(str(error))
+
+
+def is_executable_in_the_repository(path: Path) -> bool:
+    """Whether the repository ships this script as executable.
+
+    On POSIX the working tree's mode is the answer, and it is what a clone of the repository
+    produces. Windows has no executable bit, so the recorded git mode is: `git ls-files --stage`
+    reports the mode a fresh clone would create (100755 for these scripts).
+    """
+    if os.name != "nt":
+        return bool(path.stat().st_mode & 0o111)
+    try:
+        recorded = subprocess.run(
+            ["git", "ls-files", "--stage", "--", path.relative_to(REPOSITORY_ROOT).as_posix()],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=REPOSITORY_ROOT,
+        )
+    except FileNotFoundError:  # pragma: no cover - a Windows machine without git
+        pytest.fail("git is required to read the recorded file mode")
+    assert recorded.returncode == 0, recorded.stderr
+    return recorded.stdout.split(" ", 1)[0] == "100755"
 
 
 @pytest.mark.parametrize("script", ["stage-frontend.sh", "health-check.sh"])
 def test_shell_helpers_parse(script: str) -> None:
-    syntax = subprocess.run(["bash", "-n", str(DEPLOY / script)], capture_output=True, text=True, timeout=30)
+    path = DEPLOY / script
+    syntax = shell("-n", str(path))
     assert syntax.returncode == 0, syntax.stderr
-    assert (DEPLOY / script).stat().st_mode & 0o111, f"{script} must be executable"
+    assert is_executable_in_the_repository(path), f"{script} must be executable"
 
 
 def test_the_api_unit_enforces_the_documented_start_order() -> None:
@@ -97,16 +145,23 @@ def maintenance_environment(tmp_path) -> dict[str, str]:
 
     Housekeeping deletes rows, so this never touches a development or production database: the schema is
     built in `tmp_path` and the process is given only that URL.
+
+    The environment is inherited rather than replaced. A child process needs the platform's own
+    variables — on Windows the interpreter cannot even initialise its socket layer without
+    `SystemRoot` — while every `TALIMGO_*` variable that could point the application at another
+    database, secret or environment is dropped before the ones this test needs are set.
     """
     database = tmp_path / "maintenance.db"
-    environment = {
-        "PATH": os.environ.get("PATH", ""),
-        "HOME": str(tmp_path),
-        "TALIMGO_ENV": "test",
-        "TALIMGO_DATABASE_URL": f"sqlite+pysqlite:///{database}",
-        "TALIMGO_SESSION_SECRET": "deploy-artifact-test-session-secret-0001",
-        "TALIMGO_AI_ENABLED": "false",
-    }
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("TALIMGO_")}
+    environment.update(
+        {
+            "HOME": str(tmp_path),
+            "TALIMGO_ENV": "test",
+            "TALIMGO_DATABASE_URL": f"sqlite+pysqlite:///{database}",
+            "TALIMGO_SESSION_SECRET": "deploy-artifact-test-session-secret-0001",
+            "TALIMGO_AI_ENABLED": "false",
+        }
+    )
     subprocess.run(
         [sys.executable, "-m", "alembic", "upgrade", "head"],
         capture_output=True,
@@ -199,10 +254,9 @@ def test_staging_refuses_unsafe_targets_and_never_writes_outside_them(tmp_path) 
         ("--target", "/nope/../etc/talimgo"),
         ("--nope",),
     ):
-        result = subprocess.run(
-            ["bash", str(DEPLOY / "stage-frontend.sh"), *arguments],
-            capture_output=True,
-            text=True,
+        result = bash(
+            DEPLOY / "stage-frontend.sh",
+            *arguments,
             timeout=60,
             cwd=working_directory,
         )
@@ -230,7 +284,7 @@ def test_staging_refuses_a_build_that_fails_the_release_gate(tmp_path) -> None:
     (bad_dist / "assets" / "app.js").write_text('const api = "http://localhost:8000";')
     target = tmp_path / "frontend"
 
-    if subprocess.run(["bash", "-c", "command -v node"], capture_output=True).returncode != 0:
+    if shell("-c", "command -v node").returncode != 0:
         pytest.skip("node is required to run the release gate")
 
     result = bash(

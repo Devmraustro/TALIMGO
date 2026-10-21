@@ -348,6 +348,36 @@ The units are examples: check the paths, user and group against your host before
 the API to `127.0.0.1` (as above) is what keeps it non-public; the only public entry point is the proxy
 in §4.
 
+### Testing the checked-in artifacts
+
+`backend/tests/test_deploy_artifacts.py` runs the checked-in scripts for real — it stages a release,
+refuses an unsafe target, proves the release gate blocks an insecure bundle, and probes the health
+check against a live HTTP server — and reads the unit files above for the start order, the hardening
+and the timer. CI runs it on `ubuntu-latest`, where `bash` is on `PATH` and every path is POSIX.
+
+The scripts are Linux artifacts, so a **Windows host needs a POSIX shell** to run that test file. Git
+for Windows is enough: the suite finds its Bash (`Program Files\Git\bin\bash.exe`), translates the
+paths it passes to the scripts and supplies the `python3` the health check requires. Two rules keep
+this honest:
+
+* the tests are never skipped for want of a shell — a missing shell is reported as a failure with
+  the reason, so a green run always means the scripts really ran;
+* `TALIMGO_TEST_BASH` selects the shell explicitly when the automatic resolution is not the one you
+  want (for example a Bash in a non-standard location):
+
+  ```bash
+  TALIMGO_TEST_BASH=/usr/local/bin/bash pytest tests/test_deploy_artifacts.py
+  ```
+
+Everything else in the suite is platform-independent. Nothing in `deploy/` changes behaviour to suit
+a Windows development machine: the scripts keep their Linux semantics, and the Linux CI run remains
+the authority on them.
+
+The helper itself is tested separately, in `backend/tests/test_deploy_shell.py`: the path
+translation, the shell discovery, the `TALIMGO_TEST_BASH` override and the `python3` shim are
+covered directly, so a defect in them is reported as what it is rather than as a mysterious
+failure inside a deployment script. A missing shell is still a **failure**, never a skip.
+
 ## 9. Data maintenance, backup and restore
 
 * Housekeeping (login attempts 30 days, sessions 30 days past expiry):

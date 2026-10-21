@@ -63,6 +63,11 @@ export TALIMGO_AI_BASE_URL=http://127.0.0.1:11434
 export TALIMGO_AI_MODEL=qwen2.5:7b-instruct
 ```
 
+> **Windows:** the commands above are POSIX, but the backend suite also runs on Windows. One part of
+> it — the tests that execute the checked-in deployment scripts — needs a POSIX shell: Git for
+> Windows' Bash is found automatically, and `TALIMGO_TEST_BASH` selects another one. See
+> [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) §8.
+
 ## Documentation map
 
 | Document | Purpose |

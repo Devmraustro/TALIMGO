@@ -182,6 +182,27 @@ stars and **no licence file at all**, which the standing rules exclude. Conseque
 dependencies and their licences; record the version; add notices; run the dependency scan in CI; and
 record the decision here with evidence.
 
+### 4.2 Cross-platform shell discovery for the deployment tests (2026-10-21): nothing adopted
+
+The deployment artifacts under `deploy/` are Linux programs, and `backend/tests/test_deploy_artifacts.py`
+executes them. A Windows developer has no `bash` on `PATH` (Git for Windows installs one that is not
+added to `PATH`), so the suite needs to find a POSIX shell, translate paths for it and supply the
+`python3` the health check requires. Before writing that, the web (GitHub, PyPI) was searched for a
+maintained, permissively licensed component that already does it.
+
+| Candidate | Licence (verified) | Revision inspected | Decision |
+|---|---|---|---|
+| `sarugaku/shellingham` (PyPI `shellingham`) | **ISC** (PyPI metadata: "OSI Approved :: ISC License (ISCL)") | 1.5.4 (2023-10-24) | **Rejected — wrong job.** It detects the shell the *current process* is running in (the parent process on Windows), so it would report PowerShell or `cmd.exe`; it does not locate a Git for Windows installation. Adding a runtime dependency for a test-only concern, that would still have to be wrapped, was not justified |
+| `CS-SI/pytest-executable` (PyPI `pytest-executable`) | **Apache-2.0** (PyPI metadata; `LICENSE.txt` referenced by the project) | 0.5.6 (2023-10-07) | Rejected on suitability: it runs a *runner script* through a configured interpreter and organises black-box test cases from YAML; it neither locates nor adapts a POSIX shell, its own classifiers list only Linux and macOS, and it would add a plugin to the whole suite for two test files |
+| Ad-hoc recipes for Git Bash discovery (blog posts, Stack Overflow answers) | n/a | n/a | Rejected: not licensed source code, and the locations they hard-code are one machine's paths |
+
+**Consequence, recorded honestly:** `backend/tests/deploy_shell.py` is **first-party** — a small module
+that resolves the shell (`TALIMGO_TEST_BASH`, then the Git for Windows locations derived from
+`ProgramFiles`/`LOCALAPPDATA`, then `PATH`), translates a Windows path into the MSYS2 form the
+scripts require, and provides the `python3` the health check asks for. No third-party code was
+copied, so **no new attribution or licence obligation** was created; `THIRD_PARTY_NOTICES.md` is
+unchanged. The Linux CI run remains the authority on the scripts themselves.
+
 ---
 
 ## 5. Attribution obligations currently in force
