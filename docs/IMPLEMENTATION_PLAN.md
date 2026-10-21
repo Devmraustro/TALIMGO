@@ -4,7 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-10-21 (status rechecked against GitHub Actions runs on 2026-10-17).
+Last updated: 2026-10-21 (status rechecked against GitHub Actions runs on 2026-10-21).
 
 ---
 
@@ -17,27 +17,27 @@ Last updated: 2026-10-21 (status rechecked against GitHub Actions runs on 2026-1
 | Third-party audit of the three named candidates | IMPLEMENTED | `docs/OPEN_SOURCE_REUSE_AUDIT.md` |
 | Stack decision | CONFIRMED (owner-delegated) | `docs/adr/0001-stack-and-repository-layout.md` |
 | Local-only AI policy | CONFIRMED | `AGENTS.md` §2, `docs/adr/0002-local-ai-only.md` |
-| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | Latest verified CI on `17e4593` passed the backend job, including Ruff, Bandit, migration checks, full pytest suite, and the explicit local-model skip; see [PR CI run 39061208960](https://github.com/Devmraustro/TALIMGO/actions/runs/39061208960). Exact pytest pass count is not stated in the captured summary lines. |
-| Frontend slice | TESTED | Latest verified CI on `17e4593` passed the frontend job — typecheck, build, component tests and the bundle gate (run 39061208960). The archived job logs are not retrievable without authentication, so no test count from that run is restated here; the 56 passed / 1 skipped figure recorded in the previous status pass belongs to the older head `438f759`. The skip is the opt-in live-stack UI smoke test, which has a separate browser journey job. |
-| Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` is its own CI job and passed in run 39061208960; run locally on the current tree it reports `passed (80 source files, 7 URL literals, no hosted providers imported or declared)`; proven to fail on a planted violation |
+| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | Latest verified CI on `d1be9b1` passed the backend job, including Ruff, Bandit, migration checks, the full pytest suite (which now runs the deployment artifact tests on Linux), and the explicit local-model skip; see [PR CI run 39682204302](https://github.com/Devmraustro/TALIMGO/actions/runs/39682204302). Exact pytest pass count is not stated in the captured summary lines. |
+| Frontend slice | TESTED | Latest verified CI on `d1be9b1` passed the frontend job — typecheck, build, component tests and the bundle gate (run 39682204302). The archived job logs are not retrievable without authentication, so no test count from that run is restated here; the 56 passed / 1 skipped figure recorded in the previous status pass belongs to the older head `438f759`, and the local figure of 64 passed / 1 skipped is a Windows result, not a CI result. The skip is the opt-in live-stack UI smoke test, which has a separate browser journey job. |
+| Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` is its own CI job and passed in run 39682204302; run locally on the current tree it reports `passed (80 source files, 7 URL literals, no hosted providers imported or declared)`; proven to fail on a planted violation |
 | Real local-model integration verified | BLOCKED (environment) | No local model runtime was configured in CI. `pytest -m local_model` explicitly skips with: `set TALIMGO_TEST_LOCAL_MODEL=1 and configure a local runtime to run this test`. Mock adapter tests do not establish real Arabic output quality, latency, throughput, or grounding quality. |
 
 ---
 
-## 0.1 Latest CI evidence (2026-10-17)
+## 0.1 Latest CI evidence (2026-10-21)
 
-The branch head verified during this status pass is `17e4593bc9bf275efe7bd3d4dda5bc38f59d4820`. Four workflows on this exact SHA completed successfully with seven jobs each: the push and the pull-request workflow of this branch, and the push and the pull-request workflow of `arena/134bb756-talimgo` (PR #2), which was cut from the same head.
+The branch head verified during this status pass is `d1be9b1170cb5497c7306d956c6811217c487807` — the two commits that make the deployment artifact tests run on Windows and fix the licence gate on Windows. Two workflows on this exact SHA completed successfully with seven jobs each: the push and the pull-request workflow of this branch (PR #1).
 
-- Push, this branch: [run 39061205926](https://github.com/Devmraustro/TALIMGO/actions/runs/39061205926)
-- Pull request, this branch: [run 39061208960](https://github.com/Devmraustro/TALIMGO/actions/runs/39061208960)
-- Push, `arena/134bb756-talimgo`: [run 39070776154](https://github.com/Devmraustro/TALIMGO/actions/runs/39070776154)
-- Pull request, `arena/134bb756-talimgo`: [run 39070784678](https://github.com/Devmraustro/TALIMGO/actions/runs/39070784678)
+- Push, this branch: [run 39682195900](https://github.com/Devmraustro/TALIMGO/actions/runs/39682195900)
+- Pull request, this branch: [run 39682204302](https://github.com/Devmraustro/TALIMGO/actions/runs/39682204302)
 
-The seven jobs — backend tests/static checks, PostgreSQL migration and persistence, the Chromium browser journey with axe accessibility scans, the reverse-proxy TLS checks, the local-only AI gate, the frontend typecheck/build/component tests, and the dependency and licence audit — all reported `success`. The browser job runs a real Chromium journey against a locally started API and Vite server (`frontend/scripts/browser-smoke.cjs`): registration, goal creation, a real diagnostic-answer API request, Arabic RTL settings, mobile horizontal-overflow check, account deletion/session invalidation, same-origin network assertions, and axe-core WCAG A/AA scans. This is automated browser evidence on a disposable CI stack, not a manual screen-reader audit or a production-host test.
+The seven jobs — backend tests/static checks, PostgreSQL migration and persistence, the Chromium browser journey with axe accessibility scans, the reverse-proxy TLS checks, the local-only AI gate, the frontend typecheck/build/component tests, and the dependency and licence audit — all reported `success` in both runs. These are the runs that exercise the changes of §7.22 on Linux: the backend job's `Tests` step runs the deployment artifact tests against the real POSIX scripts, and the dependency job's `Node vulnerability audit and licence policy` step runs the repaired licence gate. The browser job runs a real Chromium journey against a locally started API and Vite server (`frontend/scripts/browser-smoke.cjs`): registration, goal creation, a real diagnostic-answer API request, Arabic RTL settings, mobile horizontal-overflow check, account deletion/session invalidation, same-origin network assertions, and axe-core WCAG A/AA scans. This is automated browser evidence on a disposable CI stack, not a manual screen-reader audit or a production-host test.
 
 The real local-model integration remains skipped because no runtime was configured.
 
 **What could not be re-read in this pass.** The archived job logs are not retrievable without authentication — the GitHub API returns 403 for the log download on this repository — so this pass states the run identifiers, the job list and the conclusions, and does **not** restate a test count for these runs. The previous status pass (2026-10-15, against `438f7597c365bdaab6cc64e01648bd27ff09b5b7`, runs 38245783903 and 38245789728) recorded 56 frontend tests passed and 1 skipped; that figure belongs to that older head and is not presented as current.
+
+**Scope note.** The pull request `arena/134bb756-talimgo` (PR #2) is still at `17e4593`. Its two runs on that SHA (39070776154 and 39070784678) remain green but cover the pre-change tree, not the two commits of §7.22.
 
 ---
 
@@ -50,7 +50,7 @@ The real local-model integration remains skipped because no runtime was configur
 | 3 | Learning journey slice | TESTED | Goal → diagnostic → validated roadmap → dashboard next action, end to end through the API and the real interface | commit `1008a52`; `tests/test_api_journey.py`; live journey + UI smoke test (§5) |
 | 4 | Local AI tutor | TESTED (mock endpoint), BLOCKED (real runtime) | Tutor grounded in retrieved curriculum, strict JSON validated, citation allow-list, local-only enforced, explicit failure when unavailable; no fallback path exists | commit `14c0be3`; `tests/test_ai_local_only.py`, `tests/test_tutor_local.py` |
 | 5 | Learning outcomes | PARTIAL | Quizzes with deterministic grading, evidence persistence, mastery estimates, adaptive next action, confirmation checks for provisional knowledge; no project/portfolio work yet | `tests/test_grading.py`, `tests/test_mastery_model.py`, ADR 0005 |
-| 6 | Hardening | PARTIAL | Lint, static security, dependency/licence gates, PostgreSQL migration and backup/restore rehearsal, Nginx TLS-edge checks, Chromium browser journey and axe-core WCAG A/AA scans are automated in CI. No independent penetration test or human accessibility audit; no real public deployment, DNS/TLS issuance, off-host backup, or real local-model runtime is verified. | [CI run 39061208960](https://github.com/Devmraustro/TALIMGO/actions/runs/39061208960); `docs/DEPLOYMENT.md`; `docs/SECURITY_THREAT_MODEL.md` |
+| 6 | Hardening | PARTIAL | Lint, static security, dependency/licence gates, PostgreSQL migration and backup/restore rehearsal, Nginx TLS-edge checks, Chromium browser journey and axe-core WCAG A/AA scans are automated in CI. No independent penetration test or human accessibility audit; no real public deployment, DNS/TLS issuance, off-host backup, or real local-model runtime is verified. | [CI run 39682204302](https://github.com/Devmraustro/TALIMGO/actions/runs/39682204302); `docs/DEPLOYMENT.md`; `docs/SECURITY_THREAT_MODEL.md` |
 
 Each checkpoint is developed as: define observable behaviour and tests → smallest coherent change →
 run focused tests → run lint/type/build/security → inspect the UI for UI changes → independent review
@@ -893,12 +893,16 @@ missing API, PostgreSQL database, or local model runtime.
 **NOT CLAIMED.** There is still no verified live TALIMGO staging deployment, no verified production backend,
 and no local-model inference evidence.
 
-### 7.22 Working-tree changes awaiting CI, and a Windows defect in the licence gate (2026-10-21)
+### 7.22 Windows-portable deployment tests and a Windows defect in the licence gate (2026-10-21)
 
-**UNVERIFIED BY CI — CONFIRMED LOCALLY.** The changes on this branch are not yet covered by a GitHub
-Actions run. The Linux jobs that cover them are known (`Backend`, `Frontend` and
-`Dependency and licence audit` in `.github/workflows/ci.yml`), but the runs that will exercise them do not
-exist yet. The local evidence, on a Windows machine, is:
+**VERIFIED BY CI — CONFIRMED LOCALLY.** The two commits of this section are `e526c09` (deployment test
+portability) and `d1be9b1` (frontend licence gate and Vitest upgrade). They are covered by GitHub
+Actions runs on Linux: [push 39682195900](https://github.com/Devmraustro/TALIMGO/actions/runs/39682195900)
+and [pull request 39682204302](https://github.com/Devmraustro/TALIMGO/actions/runs/39682204302), both
+`success` with all seven jobs green. The backend job's `Tests` step ran the deployment artifact tests
+against the real POSIX scripts, and the dependency job's `Node vulnerability audit and licence policy`
+step ran the repaired licence gate. The local evidence, gathered on a Windows machine before the push,
+is:
 
 | Change | Local command | Result |
 |---|---|---|
@@ -909,9 +913,9 @@ exist yet. The local evidence, on a Windows machine, is:
 | Licence policy | `node scripts/check-licences.mjs` | exit 0, 184 packages inspected |
 | Vulnerabilities | `npm audit`, `npm audit --omit=dev` | 0 vulnerabilities (was 3) |
 
-These are **local** results on a Windows machine. They are not CI results, and they do not establish
-that the POSIX paths behave the same way. The only authority on the Linux behaviour is a CI run of the
-committed tree.
+These are **local** results on a Windows machine. They are not CI results, and on their own they would
+not establish that the POSIX paths behave the same way. The Linux behaviour is established separately by
+the CI runs cited above.
 
 **DEFECT FOUND AND FIXED — the licence gate could not run on Windows.** `frontend/scripts/check-licences.mjs`
 resolved the directory to inspect with `new URL("../node_modules/", import.meta.url).pathname`. A URL
@@ -927,6 +931,9 @@ silently. `frontend/src/licence-check.test.ts` covers it: the checker must inspe
 it must fail — never report a clean result — when the packages cannot be inspected. With the previous
 resolution restored, four of the five tests fail.
 
-**NOT VERIFIED ON LINUX.** The POSIX behaviour of the new deployment-test helper is unexecuted here: no
-Linux host, WSL distribution or container was available. The path translation is a pass-through when
-`os.name != "nt"`, but the Linux CI run remains the authority.
+**POSIX BEHAVIOUR VERIFIED BY CI.** The POSIX behaviour of the new deployment-test helper was not
+executable on this machine — no Linux host, WSL distribution or container was available — so it was
+executed by the Linux CI run cited above, where the backend job's `Tests` step ran
+`backend/tests/test_deploy_artifacts.py` against the real scripts with `bash` on `PATH`. The path
+translation is a pass-through when `os.name != "nt"`, and the Linux run confirms that the unchanged
+scripts behave identically with the new helper in place.
