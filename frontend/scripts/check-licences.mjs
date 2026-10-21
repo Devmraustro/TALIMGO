@@ -9,11 +9,15 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const allowGplBuildTools = process.argv.includes("--allow-gpl-build-tools");
 const BLOCK = ["AGPL", "SSPL", "BUSL", "COMMONS CLAUSE", "EUPL"];
 const WARN = ["GPL"];
-const root = new URL("../node_modules/", import.meta.url).pathname;
+// `URL.pathname` is a URL component, not a filesystem path: on Windows it starts with "/C:/..." and
+// no filesystem call can open it, so the walk would find nothing and report an empty result.
+// `fileURLToPath` gives the real path of the directory holding this script on every platform.
+const root = fileURLToPath(new URL("../node_modules/", import.meta.url));
 
 function readLicence(packagePath) {
   try {
@@ -32,13 +36,17 @@ function readLicence(packagePath) {
 
 const failures = [];
 const warnings = [];
+const unreadable = [];
 let inspected = 0;
 
 function walk(directory) {
   let entries;
   try {
     entries = readdirSync(directory);
-  } catch {
+  } catch (error) {
+    // A directory that cannot be listed is a package whose licence is unknown. Record it and fail
+    // below rather than skipping it, so a broken path cannot be mistaken for a clean result.
+    unreadable.push(`${directory} (${error.code ?? error.message})`);
     return;
   }
   if (entries.includes("package.json")) {
@@ -71,11 +79,15 @@ function walk(directory) {
   }
 }
 
-walk(root.replace(/\/$/, ""));
+walk(root);
 
 for (const warning of warnings) console.warn(`warning: ${warning}`);
 if (failures.length > 0) {
   for (const failure of failures) console.error(`error: ${failure}`);
+  process.exit(1);
+}
+if (unreadable.length > 0) {
+  for (const directory of unreadable) console.error(`error: cannot inspect ${directory}`);
   process.exit(1);
 }
 if (inspected === 0) {

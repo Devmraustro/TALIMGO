@@ -203,6 +203,66 @@ scripts require, and provides the `python3` the health check asks for. No third-
 copied, so **no new attribution or licence obligation** was created; `THIRD_PARTY_NOTICES.md` is
 unchanged. The Linux CI run remains the authority on the scripts themselves.
 
+### 4.3 Vitest 3 to 4, for two published advisories (2026-10-21): upgraded, nothing adopted
+
+`npm audit` reported three advisories, all in the **development** dependency set, all reached
+through one package: `vitest@3.2.7`.
+
+| Advisory | Package | Severity | Route to TALIMGO |
+|---|---|---|---|
+| [GHSA-82fw-gwwq-j7x9](https://github.com/advisories/GHSA-82fw-gwwq-j7x9) — path traversal / arbitrary file read via a mocker redirect | `@vitest/mocker` 2.1.0 – 4.1.10 | moderate | `vitest@3.2.7` → `@vitest/mocker@3.2.7` |
+| [GHSA-5gmw-xhrv-c9v3](https://github.com/advisories/GHSA-5gmw-xhrv-c9v3) and [GHSA-85c8-ppgw-ccpr](https://github.com/advisories/GHSA-85c8-ppgw-ccpr) — prototype pollution gadget leading to remote code execution | `tinypool` ≤ 2.1.1 | critical | `vitest@3.2.7` → `tinypool@1.1.1` |
+
+CI's gate is `npm audit --omit=dev` (production dependencies only) and it was, and remains, **0
+vulnerabilities**. These three never blocked a build. They were still fixed, because the
+advisories are real, the packages are installed on every developer machine and on every CI
+runner, and the fix is cheap. **No new package was adopted**: Vitest was already a recorded
+dependency (MIT), so this is a version change, not a new third-party component, and
+`THIRD_PARTY_NOTICES.md` needs no new entry.
+
+**Why `4.1.12` and not what `npm audit fix --force` offers.** The forced fix installs
+`vitest@5.0.5` — two major versions — and was **not** used. The evidence for the version chosen:
+
+* `@vitest/mocker` is fixed from 4.1.11; `vitest@4.1.12` ships `@vitest/mocker@4.1.12`, outside the
+  affected range.
+* Vitest 4 **removed `tinypool` entirely** (the pool rewrite described in its migration guide),
+  so the critical advisory's package is no longer in the tree at all — verified by `npm ls tinypool`,
+  which now reports nothing.
+* Vitest 5 changes behaviour that this suite would have to re-audit: `clearMocks` becomes `true` by
+  default (it would change mock call counts between tests) and unawaited asynchronous assertions
+  start failing. Vitest 4 introduces neither.
+* The peer ranges are satisfied **without touching any other dependency**: `vite@6.4.4` satisfies
+  `^6.0.0 || ^7.0.0 || ^8.0.0`, `@types/node@^22.5.0` satisfies `^20 || ^22 || >=24`, and `jsdom`
+  is unconstrained.
+
+**One source change was required, and it is recorded here because it is not obvious.** Vitest 4 no
+longer augments Vite's `UserConfig` with the `test` property unless its types are referenced, so
+`tsc --noEmit` failed with `TS2769: 'test' does not exist in type 'UserConfigExport'`. The fix in
+`frontend/vite.config.ts` is a **types-only** reference:
+
+```ts
+/// <reference types="vitest/config" />
+```
+
+Importing `defineConfig` from `vitest/config` would also work, but it would make the production
+build load the test runner at runtime. The reference costs nothing at runtime and keeps
+`vite build` independent of `vitest`.
+
+**Verified after the change:** `npm run typecheck` exit 0; `npm test -- --run` → 59 passed,
+1 skipped (the pre-existing opt-in live-stack smoke test); `npm run build` exit 0;
+`node scripts/check-bundle.mjs` exit 0; `npm ci` reproducible from the committed lockfile;
+`npm audit` **0 vulnerabilities** (was 3); `node scripts/check-licences.mjs` → 184 packages inspected,
+none blocked and none GPL. The dependency path changed as expected: `tinypool`, `vite-node`, `loupe`,
+`tinyspy` and the `chai` internals were dropped, and `obug` and `@standard-schema/spec` were added.
+
+**The licence gate could not be run on Windows until it was fixed.** `scripts/check-licences.mjs`
+resolved the directory to inspect with `new URL("../node_modules/", import.meta.url).pathname`, which on
+Windows yields `/C:/...` — a URL component, not a path any filesystem call can open. The read failed,
+the failure was swallowed, and the script reported `no packages inspected — run npm install first` and
+exited 1. The gate is therefore now run with `fileURLToPath` from `node:url`, and a directory it cannot
+list is reported as an error instead of being skipped. `frontend/src/licence-check.test.ts` covers this.
+The change is first-party and creates no attribution obligation.
+
 ---
 
 ## 5. Attribution obligations currently in force
