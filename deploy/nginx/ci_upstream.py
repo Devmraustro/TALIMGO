@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -41,4 +41,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    HTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
+    # Threaded, unlike the plain HTTPServer this replaced: Nginx runs several workers and pools
+    # keepalive upstream connections per worker, so a second worker can present a new connection
+    # while another connection is still in flight. A single-threaded server accepts one connection
+    # at a time and would leave that request waiting on a test fixture, not on the edge under test.
+    # Binding stays loopback-only: this process exists for one CI job and must never be reachable
+    # from anywhere else.
+    server = ThreadingHTTPServer(("127.0.0.1", 8000), Handler)
+    server.daemon_threads = True
+    server.serve_forever()

@@ -14,7 +14,10 @@ shell — a missing shell is reported as a failure with the reason.
 
 from __future__ import annotations
 
+import http.client
 import http.server
+import importlib.util
+import json
 import os
 import re
 import socket
@@ -33,6 +36,8 @@ DEPLOY = REPOSITORY_ROOT / "deploy"
 API_UNIT = DEPLOY / "systemd" / "talimgo-api.service.example"
 MAINTENANCE_UNIT = DEPLOY / "systemd" / "talimgo-maintenance.service.example"
 MAINTENANCE_TIMER = DEPLOY / "systemd" / "talimgo-maintenance.timer.example"
+CI_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
+CI_UPSTREAM = DEPLOY / "nginx" / "ci_upstream.py"
 
 
 def unit_directives(path: Path) -> dict[str, list[str]]:
@@ -395,3 +400,109 @@ def test_health_check_fails_when_nothing_is_listening() -> None:
     result = bash(DEPLOY / "health-check.sh", "--url", f"http://127.0.0.1:{closed_port}", "--timeout", "2")
     assert result.returncode == 1
     assert "unhealthy" in result.stderr
+
+
+def proxy_smoke_step() -> str:
+    """The CI edge-smoke job's text, from its job id to the next job."""
+    workflow = CI_WORKFLOW.read_text()
+    start = workflow.index("proxy-tls-smoke:")
+    end = workflow.index("\n  local-only-ai:", start)
+    return workflow[start:end]
+
+
+def test_edge_smoke_waits_for_the_upstream_before_asserting_through_the_edge() -> None:
+    """Regression for push run 39716615747 (the same SHA passed as PR run 39716622524).
+
+    The step probed only the static document, which the edge serves from disk, then immediately
+    asserted on the first proxied response. When the test upstream's interpreter took longer to
+    start than the static checks took to run, that request read the edge's own 502 page and the
+    JSON assertion failed on it. Waiting must stay in front of the first proxied request, both
+    readiness waits must fail the step instead of falling through, and a failure must print the
+    logs that say which response the edge returned.
+    """
+    step = proxy_smoke_step()
+    upstream_wait = step.index("http://127.0.0.1:8000/api/health")
+    first_proxied_request = step.index("ci-edge-passthrough")
+    assert upstream_wait < first_proxied_request, "the upstream wait must precede the first proxied request"
+    assert 'test "$upstream_ready" = "1"' in step, "an upstream that never starts must fail the step"
+    assert 'test "$edge_ready" = "1"' in step, (
+        "an edge that never serves must fail the step, not fall through"
+    )
+    assert "edge smoke diagnostics" in step, "a failure must print its evidence"
+    assert "/var/log/nginx/talimgo-error.log" in step, "the edge log is part of that evidence"
+    assert step.count("talimgo-upstream.log") >= 2, "the upstream log is written once and dumped on failure"
+
+
+def test_edge_smoke_keeps_its_trust_boundary_assertions() -> None:
+    """The readiness fix must not weaken what the job proves about the edge.
+
+    These are the security properties of the shipped example: an API refusal passes through with its
+    own body and Retry-After, client-supplied forwarding headers are replaced (never trusted), the
+    plain-HTTP entry point redirects keeping path and query, and the auth location is rate limited.
+    """
+    step = proxy_smoke_step()
+    for assertion in (
+        "'301|https://talimgo.example/demo?from=http'",
+        "max-age=31536000",
+        'assert d["detail"] == "api-level limit reached"',
+        "'^Retry-After: 7'",
+        'h["X-Forwarded-Proto"] == "https"',
+        'h["X-Forwarded-For"] == "127.0.0.1"',
+        'h["Forwarded"] is None',
+        "test \"$auth_status\" = '429'",
+    ):
+        assert assertion in step, f"missing edge assertion: {assertion}"
+
+
+def test_ci_upstream_serves_the_contract_the_edge_smoke_asserts() -> None:
+    """The fixture behind the edge: exercised directly, on an ephemeral loopback port.
+
+    If this contract drifts, the CI job fails at the edge and reads like a proxy defect. Checking the
+    fixture on its own keeps the two apart. Threading and the loopback bind are asserted on the
+    source because they are properties of how the CI job runs it (127.0.0.1:8000), not of a handler
+    bound to a test port.
+    """
+    spec = importlib.util.spec_from_file_location("talimgo_ci_upstream", CI_UPSTREAM)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), module.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_address[1]
+    try:
+        refusal = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        refusal.request("GET", "/api/ci-edge-passthrough")
+        refusal_response = refusal.getresponse()
+        refusal_body = refusal_response.read()
+        assert refusal_response.status == 429
+        assert refusal_response.getheader("Retry-After") == "7"
+        assert json.loads(refusal_body) == {"detail": "api-level limit reached"}
+        refusal.close()
+
+        echo = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        echo.request(
+            "GET",
+            "/api/health",
+            headers={"X-Forwarded-Proto": "https", "X-Forwarded-For": "127.0.0.1"},
+        )
+        echo_response = echo.getresponse()
+        echoed = json.loads(echo_response.read())
+        assert echo_response.status == 200
+        assert echoed["headers"]["X-Forwarded-Proto"] == "https"
+        assert echoed["headers"]["X-Forwarded-For"] == "127.0.0.1"
+        assert echoed["headers"]["Forwarded"] is None
+        echo.close()
+
+        outside = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        outside.request("GET", "/not-an-api-path")
+        assert outside.getresponse().status == 404
+        outside.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    source = CI_UPSTREAM.read_text()
+    assert "ThreadingHTTPServer" in source
+    assert '("127.0.0.1", 8000)' in source, "the fixture must stay on loopback, where the example points"
