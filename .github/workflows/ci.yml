@@ -147,6 +147,7 @@ jobs:
       - name: Validate and smoke-test the example HTTPS edge configuration
         run: |
           set -euo pipefail
+          rm -f /tmp/talimgo-passthrough.headers
           sudo mkdir -p /etc/letsencrypt/live/talimgo.example /srv/talimgo/frontend/dist /var/www/certbot
           sudo openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
             -keyout /etc/letsencrypt/live/talimgo.example/privkey.pem \
@@ -164,15 +165,62 @@ jobs:
             kill "$upstream_pid" >/dev/null 2>&1 || true
             wait "$upstream_pid" >/dev/null 2>&1 || true
           }
-          trap cleanup EXIT
+          # On failure, show why: the upstream log, the edge log, the raw passthrough headers and the
+          # listening sockets. Without this a failed run records only the assertion that noticed the
+          # problem (push run 39716615747: a JSON decode error with no upstream or Nginx log), which
+          # leaves the next investigator to guess which response the edge actually returned.
+          on_exit() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo "--- edge smoke diagnostics (exit $status) ---" >&2
+              echo "upstream log:" >&2
+              { cat /tmp/talimgo-upstream.log || true; } >&2
+              echo "nginx error log (tail):" >&2
+              { sudo tail -n 50 /var/log/nginx/talimgo-error.log || true; } >&2
+              echo "passthrough response headers:" >&2
+              { cat /tmp/talimgo-passthrough.headers || true; } >&2
+              if kill -0 "$upstream_pid" >/dev/null 2>&1; then
+                echo "upstream process $upstream_pid: still running" >&2
+              else
+                echo "upstream process $upstream_pid: not running" >&2
+              fi
+              echo "listening sockets:" >&2
+              { ss -ltnp || true; } >&2
+            fi
+            cleanup
+          }
+          trap on_exit EXIT
 
-          sudo nginx -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example"
-          for _ in $(seq 1 30); do
-            if curl -sk --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ >/dev/null; then
+          # Wait until the test upstream accepts requests before asserting anything through the edge.
+          # The only readiness probe used to be the static document below, which Nginx serves from
+          # disk: it proves the edge is up and says nothing about 127.0.0.1:8000, so the first proxied
+          # request raced the interpreter start. On a slow runner it lost, read Nginx's 502 page
+          # instead of the upstream's JSON, and failed with a decode error (push run 39716615747; the
+          # same SHA passed in PR run 39716622524). Polling the upstream directly keeps this wait
+          # outside the edge, so it cannot consume any of the rate-limit budget asserted below.
+          upstream_ready=0
+          for _ in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+              upstream_ready=1
+              break
+            fi
+            if ! kill -0 "$upstream_pid" >/dev/null 2>&1; then
               break
             fi
             sleep 0.25
           done
+          test "$upstream_ready" = "1"
+
+          sudo nginx -c "$GITHUB_WORKSPACE/deploy/nginx/talimgo.conf.example"
+          edge_ready=0
+          for _ in $(seq 1 30); do
+            if curl -sk --resolve talimgo.example:443:127.0.0.1 https://talimgo.example/ >/dev/null; then
+              edge_ready=1
+              break
+            fi
+            sleep 0.25
+          done
+          test "$edge_ready" = "1"
 
           redirect=$(curl -sS -o /dev/null -w '%{http_code}|%{redirect_url}' \
             -H 'Host: talimgo.example' 'http://127.0.0.1/demo?from=http')
