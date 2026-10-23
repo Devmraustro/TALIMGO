@@ -1,6 +1,6 @@
-﻿# Vercel deployment — verified state and owner actions
+# Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-15**. Earlier public-host observations are preserved below with their original dates; this session could not re-fetch the public alias because the connected Vercel integration denied access.
+Status date: **2026-10-22**. Earlier public-host observations are preserved below with their original dates. The 2026-10-15 access denial recorded in the next paragraph no longer applies: on 2026-10-22 the connected Vercel integration answered project, deployment, domain and environment-variable reads (see the re-check after it).
 This file records what was actually observed about the Vercel deployment from outside, what it can and
 cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
@@ -14,6 +14,37 @@ or environment variable was modified.
 requesting Vercel's protection-bypass endpoint with 403. Therefore, project settings, deployment history,
 current public responses, and response headers could not be freshly verified in this session. No deployment
 or protection bypass was attempted beyond those read-only inspection calls.
+
+### 2026-10-22 re-check (edge-smoke CI recovery session)
+
+**Nothing on the Vercel side was changed by hand in this session.** No project setting, deployment,
+alias, domain, rewrite or environment variable was created or modified. What changed on its own is
+Git-triggered: pushes created the deployment attempts listed below. All Vercel API observations are
+read-only results from the connected integration on this date; public-host observations were made
+through a page fetcher because direct HTTPS from the sandbox to `*.vercel.app` is blocked by sandbox
+egress (`SSL_ERROR_SYSCALL`, curl code 000), so **response headers remain unverified** and
+`deploy/health-check.sh` cannot be run against the alias from here (its exit 1 in this sandbox means
+"unreachable from here", not a verdict on the host).
+
+| Check | Observed (2026-10-22) |
+| --- | --- |
+| Project `talimgo-preview` (`prj_RX2NmJBTcZTkygGNgZKcbhqBk7aA`) | Vite, Hobby plan, production branch `main`, `requireVerifiedCommits: true`, SSO protection `all_except_custom_domains` |
+| Environment variables on the project | **None** (empty list) |
+| Project domains | Only `talimgo-preview.vercel.app`; no custom domain, no API host |
+| Production target (the public alias) | Still deployment `dpl_D4SuhSmqF2fDuTnbhoM2AecQCWfL` of commit `fa421ab` (`PROMOTED`) — the stale bundle below |
+| Preview for `a7bb749` (signed) | `dpl_DzeV5iwfoXdNxXgUb3KMr1A67gYD`, **READY**/**STAGED**, branch alias `talimgo-preview-git-arena-c22f9408-67b2e9-devmraustros-projects.vercel.app`; the signing remediation in this file worked |
+| Preview attempt for `4609b81` (unsigned CI fix) | `dpl_DF5jdTRtgS9PYTyVavdHKANDf5jb`, **CANCELED** — "The deployment was canceled because the commit signature couldn't be verified." The sandbox has no signing key; see the owner action below |
+| `https://talimgo-preview.vercel.app/` | **200** shell, banner still `Request failed (404).` — the production alias does **not** serve the `a7bb749` preview |
+| `https://talimgo-preview.vercel.app/api/health` | **404** `NOT_FOUND` — still no API behind the alias |
+| Branch preview alias `/api/health` | Redirects to Vercel SSO login (Protected Deployment) — not inspectable without an owner session, and no bypass was attempted |
+
+**Owner action added by this session:** commit `4609b81` (the edge-smoke CI fix, on
+`arena/cd207ad5-talimgo`) must be signed before Vercel will build it — for example
+`git cherry-pick 4609b81` onto `arena/c22f9408-talimgo` with the local SSH signing setup recorded
+below, then push. Everything else about the deployment gap is unchanged: **no backend hostname or
+PostgreSQL instance exists**, so no `/api` rewrite was configured (the root `vercel.json` keeps its
+intentional `/api` → 404), no database write has ever reached a deployed environment, and the
+checklist in `docs/DEPLOYMENT.md` §11 remains the path to a real deployment.
 
 ### 2026-10-12 re-check (unchanged)
 
@@ -109,8 +140,10 @@ were not cryptographically verified by GitHub.
 4. Local signature verification now succeeds: `Good "git" signature for mraustro@gmail.com with
    ED25519 key SHA256:vWuBK+/6g+aGup6KKUQSAec+C5pcD/bmh3CQTE7aRKM`.
 
-**Status:** Awaiting the next signed push to trigger a Vercel preview deployment that satisfies the
-Verified Commits requirement. The previous deployment remains at commit `fa421ab` (stale).
+**Status:** Resolved for signed pushes — the signed commits `6d1859c` and `a7bb749` each produced a
+READY preview deployment (see the 2026-10-22 re-check above). The public alias's production target
+remains at commit `fa421ab` (stale); only the branch preview alias moved. Unsigned commits are still
+cancelled, most recently `4609b81`.
 
 ---
 

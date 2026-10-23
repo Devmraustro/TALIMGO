@@ -937,3 +937,74 @@ executed by the Linux CI run cited above, where the backend job's `Tests` step r
 `backend/tests/test_deploy_artifacts.py` against the real scripts with `bash` on `PATH`. The path
 translation is a pass-through when `os.name != "nt"`, and the Linux run confirms that the unchanged
 scripts behave identically with the new helper in place.
+
+### 7.23 Edge-smoke CI recovery: a readiness race, reproduced and fixed (2026-10-22)
+
+**CONFIRMED — the failure.** Commit `a7bb749` (a documentation-only change, GitHub-verified SSH
+signature) produced two CI runs for the same SHA: push run
+[39716615747](https://github.com/Devmraustro/TALIMGO/actions/runs/39716615747) **failed** only the
+`Reverse proxy (TLS, redirects and trusted forwarding headers)` job (ID 119620127235), while PR run
+[39716622524](https://github.com/Devmraustro/TALIMGO/actions/runs/39716622524) passed all seven jobs.
+The failed step's log shows `nginx -t` succeeding, then — with none of the step's success messages
+printed — the first `json.loads` assertion (on `GET /api/ci-edge-passthrough`) raising
+`JSONDecodeError: Expecting value: line 1 column 1 (char 0)`, exit code 1, about 236 ms after the
+`nginx -t` line. Every check before it (certificate, TLS, redirect, document headers) is silent on
+success and had passed, because the script reached that line at all. In the passing run the same
+sequence took about 90 ms.
+
+**CONFIRMED — the cause.** The step started `deploy/nginx/ci_upstream.py` in the background and never
+waited for it. Its only readiness probe fetched the static document, which Nginx serves from disk, so
+it proved the edge was up and said nothing about `127.0.0.1:8000`; the loop also fell through silently
+if exhausted. The first proxied request therefore raced the interpreter start. Reproduced locally with
+Nginx 1.24.0 (the CI package's version, built from source in the sandbox because no package archive is
+reachable from it): with the upstream start delayed 1.5 s, the unmodified step fails identically —
+`HTTP/2 502`, Nginx's HTML error page, the same `JSONDecodeError`, and
+`connect() failed (111: Connection refused) while connecting to upstream` in the Nginx log. Warm, the
+upstream needs about 40 ms to accept requests here, against the ~90 ms the passing CI run spent before
+that request: a margin a cold or loaded runner can lose. TLS, the certificate, the forwarding-header
+handling and the rate limits are eliminated as causes by the ordering above (they either had already
+passed or had not been reached). One honest limit: the failed run itself recorded neither the 502 body
+nor any service log — that is the second defect below — so the 502 is established by reproduction and
+by elimination, not quoted from that run's log.
+
+**IMPLEMENTED — the fix** (commit `4609b81`, on `arena/cd207ad5-talimgo`, parent `a7bb749`). The step
+now polls the upstream directly at `http://127.0.0.1:8000/api/health` before asserting anything through
+the edge (directly, so the wait cannot consume edge rate-limit budget), fails explicitly if the
+upstream never becomes ready or dies (`test "$upstream_ready" = "1"`, mirroring the browser-smoke
+job's pattern in the same file), and makes the Nginx loop fail the same way (`edge_ready`). On any
+failure the exit trap dumps the upstream log, the Nginx error log, the raw passthrough headers, process
+liveness and listening sockets. The fixture now serves with `ThreadingHTTPServer` (loopback bind and
+handler contract unchanged) so parallel worker connections cannot queue behind one fixture connection.
+No assertion was weakened and no retry was added around any proxied request; three regression tests in
+`backend/tests/test_deploy_artifacts.py` lock in the wait ordering, the trust-boundary assertions
+verbatim (forwarding headers overwritten, API 429 passthrough with `Retry-After`, redirect, HSTS, auth
+rate limit), and the fixture contract served for real on an ephemeral port.
+
+**TESTED — evidence.** Local (sandbox, Nginx 1.24.0, the extracted updated step): warm 13/13 passed;
+upstream delayed 1.5 s passed (the old step fails there); delayed 5 s passed; upstream dying
+immediately failed in ~0.5 s with diagnostics and a preserved non-zero exit. Backend:
+`pytest` 405 tests, 401 passed, 4 skipped, 0 failures (exit 0), including
+`test_deploy_artifacts.py` 20/20; `ruff check`/`ruff format --check`/`bandit` exit 0; Alembic
+`upgrade head` + `check` on an empty SQLite database clean; production preflight passes a correct
+configuration and refuses a SQLite production database. Frontend: `npm ci`, typecheck, build and the
+bundle check exit 0; 64 tests passed, 1 skipped. **VERIFIED BY CI:** push run
+[39874622240](https://github.com/Devmraustro/TALIMGO/actions/runs/39874622240) for `4609b81` —
+`success`, all seven jobs green, including the PostgreSQL and Chromium jobs this sandbox cannot run.
+The sandbox's GitHub integration cannot re-run individual jobs (HTTP 403), so repeated **CI** samples
+of the proxy job come from ordinary subsequent runs, not from forced re-runs; the repeated-sample
+evidence above is local.
+
+**BLOCKED — not deployed.** Nothing in this section deploys the backend. No authorised API host or
+PostgreSQL instance exists: the Vercel project holds no environment variables and only the
+`talimgo-preview.vercel.app` domain, the repository configures no `/api` rewrite (the root
+`vercel.json` intentionally answers `/api` with 404 until a backend hostname exists), and every item in
+`docs/DEPLOYMENT.md` §11 still needs the owner. Repository-side preparation was re-validated instead:
+the one-host artifacts and their tests, a local two-boot rehearsal (register → goal → process restart
+→ login → same goal, against a throwaway SQLite file — **local only, not a deployed environment**),
+`deploy/health-check.sh` semantics, and `deploy/stage-frontend.sh --dry-run`. Commit `4609b81` is
+**unsigned** (the sandbox holds no signing key), and Vercel cancelled its deployment
+(`dpl_DF5jdTRtgS9PYTyVavdHKANDf5jb`) under the Verified Commits requirement: the owner must apply the
+commit with their signing setup (for example cherry-pick it onto `arena/c22f9408-talimgo` locally and
+push signed) before any preview can build from it. TALIMGO is not production-ready, and no frontend
+preview should be presented as a working product while the backend, database and local model runtime
+remain unprovisioned.
