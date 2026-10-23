@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.vite/
+coverage/
+
+# Local data / secrets
+*.db
+*.sqlite3
+.env
+.env.*
+!.env.example
+data/
+secrets/
+model_cache/
+*.gguf
+*.safetensors
+*.bin
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Agent scratch space
+.arena/
+.tmp/
+scratch/
