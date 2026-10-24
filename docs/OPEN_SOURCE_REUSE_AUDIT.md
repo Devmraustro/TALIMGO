@@ -263,6 +263,24 @@ exited 1. The gate is therefore now run with `fileURLToPath` from `node:url`, an
 list is reported as an error instead of being skipped. `frontend/src/licence-check.test.ts` covers this.
 The change is first-party and creates no attribution obligation.
 
+### 4.4 Rate-limiting libraries for the registration guard (2026-10-24): nothing adopted
+
+Closing the registration half of threat T15 needed a per-IP rate limit on `POST /api/auth/register`.
+Before writing one, the FastAPI ecosystem was searched for a maintained, permissively licensed
+limiter that could be adopted instead.
+
+| Candidate | Licence (verified) | Decision |
+|---|---|---|
+| `laurents/slowapi` (PyPI `slowapi`) | **MIT** (repository licence link; 2.1k stars) | **Rejected — architecture mismatch.** Its storage backends are memory, Redis and memcached. The memory backend is per process, which is weaker than the database-backed counting this repository already uses for login lockout and the per-learner write limit (both explicitly designed to work across workers); the Redis/memcached backends add shared infrastructure, which AGENTS.md §5 excludes until a concrete need is measured. A new dependency plus middleware would also have bypassed the existing guard conventions (429 + `Retry-After` raised from service code, documented in `docs/DEPLOYMENT.md`) |
+| `fastapi-limiter` | MIT (PyPI metadata) | Rejected: Redis-only by design |
+| `limits` (the library under slowapi) | MIT | Rejected for the same storage reasons as slowapi; adopting it directly would still add a dependency to hand-roll the same fixed/rolling-window SQL the repository already owns |
+
+**Consequence, recorded honestly:** the registration limit is **first-party** and follows the two
+existing in-repo patterns exactly: append-only attempt rows counted per IP inside a rolling hour
+(like `login_locked`) and pruned by `app.maintenance` (like `prune_login_attempts`), with a 429 +
+`Retry-After` response contract (like the write-rate limit). No third-party code was copied, so no
+new attribution or licence obligation was created; `THIRD_PARTY_NOTICES.md` is unchanged.
+
 ---
 
 ## 5. Attribution obligations currently in force

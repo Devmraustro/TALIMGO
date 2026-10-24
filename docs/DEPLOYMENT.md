@@ -92,6 +92,10 @@ automatically in production (`/api/docs`, `/api/openapi.json` return 404).
 * Authenticated mutating API requests are limited per learner by `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE`
   (default 120 per UTC minute, fixed window). This is a per-account application guard, not a substitute
   for edge-level limits on unauthenticated routes or abusive distributed traffic.
+* Registration attempts are limited per client IP by `TALIMGO_REGISTRATIONS_PER_IP_PER_HOUR`
+  (default 10 per rolling hour). A refused request returns 429 with `Retry-After`. Clients behind one
+  shared address (school lab, office NAT) share the allowance — raise the value deliberately for such
+  audiences. The edge's stricter `/api/auth/*` `limit_req` stays the first line.
 * The local-model generation gate is per worker process: `TALIMGO_AI_MAX_CONCURRENT_REQUESTS`
   (default 1) with a bounded wait of `TALIMGO_AI_QUEUE_TIMEOUT_SECONDS` (default 2 seconds).
   A saturated request receives 503 before its daily AI allowance is claimed. Multi-worker deployments
@@ -222,7 +226,7 @@ names with non-production placeholders.
 | `TALIMGO_AI_BASE_URL` | Local model endpoint | API service | Local-only by policy; startup refuses a non-local endpoint while `TALIMGO_AI_STRICT=true` |
 | `TALIMGO_AI_MODEL` | Local model name | API service | Required when AI is enabled |
 | `TALIMGO_AI_DIALECT` | Runtime protocol | API service | `ollama` or `openai_compatible` |
-| `TALIMGO_SESSION_TTL_HOURS`, `TALIMGO_MAX_LOGIN_ATTEMPTS`, `TALIMGO_LOGIN_LOCKOUT_MINUTES`, `TALIMGO_MIN_PASSWORD_LENGTH`, `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE`, `TALIMGO_MAX_REQUEST_BYTES` | Abuse and size limits | API service | Defaults are documented in `backend/.env.example`; change deliberately |
+| `TALIMGO_SESSION_TTL_HOURS`, `TALIMGO_MAX_LOGIN_ATTEMPTS`, `TALIMGO_LOGIN_LOCKOUT_MINUTES`, `TALIMGO_MIN_PASSWORD_LENGTH`, `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE`, `TALIMGO_REGISTRATIONS_PER_IP_PER_HOUR`, `TALIMGO_MAX_REQUEST_BYTES` | Abuse and size limits | API service | Defaults are documented in `backend/.env.example`; change deliberately |
 | `TALIMGO_AI_TIMEOUT_SECONDS`, `TALIMGO_AI_MAX_OUTPUT_TOKENS`, `TALIMGO_AI_MAX_CONCURRENT_REQUESTS`, `TALIMGO_AI_QUEUE_TIMEOUT_SECONDS`, `TALIMGO_AI_DAILY_REQUESTS_PER_LEARNER` | Model resource bounds | API service | Concurrency is per worker process; cap the aggregate at the model host |
 | `TALIMGO_SEED_ON_STARTUP` | Loads the authored curriculum at boot | API service | Leave `false` in production and load content deliberately |
 | `TALIMGO_ENV_FILE` | Points settings at an env file | API service | Optional; uses an absolute path |
@@ -318,6 +322,7 @@ beyond trusting the certificate the runner sees.
 | In-flight model generations | application worker | `TALIMGO_AI_MAX_CONCURRENT_REQUESTS` (default 1 per worker) |
 | Model queue wait | application | `TALIMGO_AI_QUEUE_TIMEOUT_SECONDS` (default 2 seconds; then 503 before quota claim) |
 | Authenticated mutating requests | application | `TALIMGO_WRITE_RATE_LIMIT_PER_MINUTE` (default 120 per learner per UTC minute) |
+| Registration attempts | application | `TALIMGO_REGISTRATIONS_PER_IP_PER_HOUR` (default 10 per client IP per rolling hour; then 429 with `Retry-After`) |
 | Model call timeout | application | `TALIMGO_AI_TIMEOUT_SECONDS` (default 60; maximum 600) |
 | Session lifetime | application | `TALIMGO_SESSION_TTL_HOURS` (default 336) |
 | Login attempts | application | `TALIMGO_MAX_LOGIN_ATTEMPTS` per email and per IP per window |
@@ -380,7 +385,7 @@ failure inside a deployment script. A missing shell is still a **failure**, neve
 
 ## 9. Data maintenance, backup and restore
 
-* Housekeeping (login attempts 30 days, sessions 30 days past expiry):
+* Housekeeping (login attempts 30 days, registration attempts 30 days, sessions 30 days past expiry):
 
 ```bash
 backend/.venv/bin/python -m app.maintenance --dry-run   # report only

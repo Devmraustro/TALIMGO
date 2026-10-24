@@ -4,7 +4,8 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-10-21 (status rechecked against GitHub Actions runs on 2026-10-21).
+Last updated: 2026-10-24 (§7.23 added, local verification only — no CI run includes it yet; the
+status table below was rechecked against GitHub Actions runs on 2026-10-21).
 
 ---
 
@@ -937,3 +938,36 @@ executed by the Linux CI run cited above, where the backend job's `Tests` step r
 `backend/tests/test_deploy_artifacts.py` against the real scripts with `bash` on `PATH`. The path
 translation is a pass-through when `os.name != "nt"`, and the Linux run confirms that the unchanged
 scripts behave identically with the new helper in place.
+
+### 7.23 Per-IP registration rate limit (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+
+**The gap.** Threat model T15 ("Mass registration / cost abuse") was PARTIAL: login limiting,
+per-account AI caps and the per-learner write limit existed, but registration had no rate limit at
+all, so one address could mass-create accounts (each new account grants a fresh daily AI allowance).
+The reuse search for an existing limiter is recorded in `docs/OPEN_SOURCE_REUSE_AUDIT.md` §4.4 —
+nothing adopted; the guard follows the repository's own two database-backed patterns instead.
+
+**The change.** Accepted `POST /api/auth/register` requests append a row to `registration_attempts`
+(migration `a3f8c2d94b17`); the check counts rows per client IP inside a rolling hour against
+`TALIMGO_REGISTRATIONS_PER_IP_PER_HOUR` (default 10, validated 1–10 000). An exhausted IP receives
+429 with a `Retry-After` derived from the window's oldest attempt; the refused request is not itself
+counted. The check runs before bcrypt work and before any user write; failed registrations (missing
+consent, weak password, duplicate email) consume the allowance, so the endpoint cannot be probed for
+free. The attempt row commits immediately in its own right, so it survives a later rollback of the
+request. Maintenance prunes the table after 30 days (dry-run and CLI flag included).
+
+**Evidence — local Windows run against this working tree (not CI):**
+
+| Check | Command | Result |
+|---|---|---|
+| Full backend suite | `pytest` (via `.venv/Scripts/python.exe -m pytest -p no:warnings`) | 411 passed, 1 skipped (the documented `local_model` skip) |
+| New behaviour | `pytest tests/test_registration_rate_limits.py tests/test_maintenance.py` | first run: 1 failed — the new prune test expected 2 remaining rows but the API registration it performed now inserts an attempt row of its own; expectation corrected, then 12 passed |
+| Lint, format, static security | `ruff check app tests scripts`, `ruff format --check app tests scripts`, `bandit -q -r app` | all exit 0 |
+| Migration on empty DB + model parity | `alembic upgrade head` then `alembic check` with `TALIMGO_DATABASE_URL=sqlite:///./ci-migration-test.db` | upgrade reaches `a3f8c2d94b17`; "No new upgrade operations detected" |
+| Local-only AI policy | `python scripts/check_no_external_ai.py` | passed (80 source files, 7 URL literals) |
+
+**Not yet verified.** The GitHub Actions runs cited in §0.1 cover commit `d1be9b1`, before this change;
+no CI run includes it yet. The PostgreSQL CI job has not exercised migration `a3f8c2d94b17` (the
+local migration evidence above is SQLite only). Residual behaviour is documented in the threat model:
+per-IP counting shares one allowance across clients behind one NAT, and a same-instant race can
+overshoot by a request; the reverse proxy's stricter `/api/auth/*` `limit_req` remains the first line.
