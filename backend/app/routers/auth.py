@@ -26,18 +26,25 @@ def _set_session_cookie(response: Response, token: str, max_age_seconds: int, *,
 
 
 @router.post("/register", response_model=MeOut, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, response: Response, db: Db) -> MeOut:
+def register(payload: RegisterRequest, request: Request, response: Response, db: Db) -> MeOut:
     settings = get_settings()
     try:
         user = accounts.register_user(
             db,
             settings,
+            ip=client_ip(request),
             email=str(payload.email),
             password=payload.password,
             display_name=payload.display_name,
             accept_terms=payload.accept_terms,
             accept_ai_processing=payload.accept_ai_processing,
         )
+    except accounts.RegistrationRateLimited as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
     except accounts.EmailAlreadyRegistered as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except accounts.WeakPasswordError as exc:

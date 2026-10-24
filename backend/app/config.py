@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     min_password_length: int = Field(default=10, ge=8, le=128)
     # Authenticated mutating requests per learner per UTC minute (fixed-window limit).
     write_rate_limit_per_minute: int = Field(default=120, ge=1, le=10_000)
+    # Registration attempts per client IP per rolling hour (mass-registration guard, T15).
+    registrations_per_ip_per_hour: int = Field(default=10, ge=1, le=10_000)
 
     # --- Local AI (never a hosted provider) ---
     ai_enabled: bool = False

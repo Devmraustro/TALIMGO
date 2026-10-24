@@ -16,8 +16,8 @@ from app.maintenance import (
     prune_sessions,
     run_maintenance,
 )
-from app.models import LoginAttempt, Session
-from app.security import prune_login_attempts
+from app.models import LoginAttempt, RegistrationAttempt, Session
+from app.security import prune_login_attempts, prune_registration_attempts
 from app.utils import utcnow
 from tests.conftest import register
 
@@ -127,6 +127,26 @@ def test_running_maintenance_twice_is_a_no_op(client) -> None:
     assert first.login_attempts_pruned == 2
     assert second.login_attempts_pruned == 0
     assert second.sessions_pruned == 0
+
+
+def test_registration_attempt_pruning_keeps_recent_rows_and_drops_stale_ones(client) -> None:
+    now = utcnow()
+    with session_scope() as db:
+        for index in range(3):
+            db.add(
+                RegistrationAttempt(
+                    ip="203.0.113.9",
+                    attempted_at=now - timedelta(days=LOGIN_ATTEMPT_RETENTION_DAYS + 1 + index),
+                )
+            )
+        for index in range(2):
+            db.add(RegistrationAttempt(ip="203.0.113.9", attempted_at=now - timedelta(hours=1 + index)))
+        db.commit()
+        pruned = prune_registration_attempts(db, now=now)
+        db.commit()
+        remaining = db.query(RegistrationAttempt).count()
+
+    assert pruned == 3 and remaining == 2, "retention must be exact, not approximate"
 
 
 def test_audit_rows_are_not_pruned_by_maintenance(client) -> None:

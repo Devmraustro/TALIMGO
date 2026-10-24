@@ -73,6 +73,16 @@ class LoginAttempt(Base):
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
 
+class RegistrationAttempt(Base):
+    """One accepted-for-processing registration request, for the per-IP mass-registration guard."""
+
+    __tablename__ = "registration_attempts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("rga"))
+    ip: Mapped[str] = mapped_column(String(64), default="", index=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
+
+
 class Profile(Base):
     __tablename__ = "profiles"
 

@@ -29,7 +29,14 @@ from app.models import (
     TutorThread,
     User,
 )
-from app.security import hash_password, hash_session_token, password_problems, verify_password
+from app.security import (
+    hash_password,
+    hash_session_token,
+    password_problems,
+    record_registration_attempt,
+    registration_retry_after,
+    verify_password,
+)
 from app.utils import utcnow
 
 
@@ -55,16 +62,35 @@ class AccountLocked(AccountError):
     pass
 
 
+class RegistrationRateLimited(AccountError):
+    """This connection has exhausted its registration allowance for the rolling hour."""
+
+    def __init__(self, retry_after: int) -> None:
+        self.retry_after = max(1, retry_after)
+        super().__init__("Too many accounts have been created from this connection.")
+
+
 def register_user(
     db: DbSession,
     settings: Settings,
     *,
+    ip: str,
     email: str,
     password: str,
     display_name: str,
     accept_terms: bool,
     accept_ai_processing: bool,
+    now: datetime | None = None,
 ) -> User:
+    moment = now or utcnow()
+    retry_after = registration_retry_after(db, ip=ip, settings=settings, now=moment)
+    if retry_after is not None:
+        raise RegistrationRateLimited(retry_after)
+    # The attempt is counted even when the registration itself is refused, so repeated failures
+    # cannot probe the endpoint for free. Committed now, never rolled back with the request.
+    record_registration_attempt(db, ip=ip)
+    db.commit()
+
     if not accept_terms:
         raise AccountError("You must accept the terms to create an account.")
     problems = password_problems(password, settings)
