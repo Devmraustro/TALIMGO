@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,7 +10,7 @@ from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import session_scope
-from app.models import RegistrationAttempt, User
+from app.models import RegistrationAttempt, RegistrationIpGuard, User
 from app.security import registration_retry_after
 from app.services import accounts
 
@@ -116,3 +117,63 @@ def test_registration_and_login_policies_stay_independent(client_factory) -> Non
         "/api/auth/login", json={"email": "first@example.com", "password": "a-long-enough-password"}
     )
     assert login.status_code == 200, login.text
+
+
+def test_concurrent_registrations_cannot_exceed_the_limit(client_factory) -> None:
+    """Ten threads, a limit of three: exactly three accounts may be created, whatever the interleaving.
+
+    The original check-then-insert let every concurrently in-flight request from one address read the
+    same below-cap count and each record an attempt, so the effective cap drifted upwards under
+    bursts. The per-IP guard row serialises the decisions (same pattern as the AI quota's conditional
+    update), which this test pins down. Mirrors tests/test_ai_quota.py.
+    """
+    client_factory(TALIMGO_REGISTRATIONS_PER_IP_PER_HOUR=3)
+    settings = get_settings()
+    granted: list[int] = []
+    refused: list[str] = []
+    start = threading.Barrier(10)
+    lock = threading.Lock()
+
+    def attempt(index: int) -> None:
+        start.wait()
+        try:
+            with session_scope() as db:
+                accounts.register_user(
+                    db,
+                    settings,
+                    ip="203.0.113.77",
+                    email=f"race-{index}@example.com",
+                    password="a-long-enough-password",
+                    display_name="Race",
+                    accept_terms=True,
+                    accept_ai_processing=False,
+                )
+            with lock:
+                granted.append(index)
+        except accounts.RegistrationRateLimited as exc:
+            with lock:
+                refused.append(str(exc))
+        except Exception as exc:  # pragma: no cover - surfaced as a failure with its type
+            with lock:
+                refused.append(f"unexpected {type(exc).__name__}: {exc}")
+
+    threads = [threading.Thread(target=attempt, args=(index,)) for index in range(10)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert len(granted) == 3, f"granted={granted} refused={refused}"
+    assert not any(str(item).startswith("unexpected") for item in refused), (
+        f"a thread failed unexpectedly: refused={refused}"
+    )
+    assert len(refused) == 7
+    with session_scope() as db:
+        assert _user_count() == 3, "a refused concurrent registration must not create an account"
+        attempts = len(
+            list(db.scalars(select(RegistrationAttempt.id).where(RegistrationAttempt.ip == "203.0.113.77")))
+        )
+        assert attempts == 3, "refused concurrent requests must leave no counted attempt rows"
+        assert db.query(RegistrationIpGuard).filter(RegistrationIpGuard.ip == "203.0.113.77").count() == 1, (
+            "the guard is one row per address, not per request"
+        )

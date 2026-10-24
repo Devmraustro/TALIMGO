@@ -7,7 +7,8 @@ Decisions (see docs/SECURITY_THREAT_MODEL.md):
     not yield usable session tokens.
   * Login attempts are recorded and counted per email and per IP; both lock out temporarily.
   * Registration attempts are counted per IP inside a rolling hour, so one address cannot mass-
-    create accounts (threat T15); the counting works across workers because it is in the database.
+    create accounts (threat T15); the counting works across workers because it is in the database,
+    and the per-IP guard row makes concurrent decisions serialise instead of overshooting.
 """
 
 from __future__ import annotations
@@ -18,11 +19,12 @@ import secrets
 from datetime import datetime, timedelta
 
 import bcrypt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as DbSession
 
 from app.config import Settings
-from app.models import LoginAttempt, RegistrationAttempt
+from app.models import LoginAttempt, RegistrationAttempt, RegistrationIpGuard
 from app.utils import ensure_aware, utcnow
 
 BCRYPT_ROUNDS = 12
@@ -102,8 +104,9 @@ def registration_retry_after(db: DbSession, *, ip: str, settings: Settings, now:
     """Seconds until this IP may register again, or None when it is under the cap.
 
     Like :func:`login_locked`, the count is plain database rows, so concurrent workers share one
-    allowance. The check admits a small overshoot under a same-instant race; the reverse proxy's
-    per-IP ``limit_req`` is documented as the cheaper first line (docs/DEPLOYMENT.md).
+    allowance. Call this only while holding the per-IP guard (see :func:`claim_registration_slot`);
+    on its own, a plain check-then-insert would let every concurrently in-flight request from one
+    address read the same below-cap count and each record an attempt.
     """
     since = now - timedelta(minutes=REGISTRATION_WINDOW_MINUTES)
     attempts = db.scalar(
@@ -122,6 +125,41 @@ def registration_retry_after(db: DbSession, *, ip: str, settings: Settings, now:
         return 1
     exit_at = ensure_aware(oldest) + timedelta(minutes=REGISTRATION_WINDOW_MINUTES)
     return max(1, int((exit_at - ensure_aware(now)).total_seconds()) + 1)
+
+
+def claim_registration_slot(db: DbSession, *, ip: str, settings: Settings, now: datetime) -> int | None:
+    """Serialise same-IP decisions, then record the attempt or report when the cap is reached.
+
+    Returns None when the attempt row has been recorded (the caller commits), or the Retry-After
+    seconds when this IP is over the rolling-hour cap (nothing is recorded, and the caller raises).
+
+    The guard row makes the decision safe under concurrency the same way the per-user write limit
+    and the AI quota are safe: a write on one known row. Every request from one address updates
+    that address's single ``registration_ip_guards`` row first; on both SQLite and PostgreSQL a
+    concurrent update on the same row blocks until the holder commits or rolls back, so the
+    rolling-window count that follows is taken against settled state and the cap is exact.
+    """
+    key = ip[:64]
+    for _ in range(3):
+        touched = db.execute(
+            update(RegistrationIpGuard).where(RegistrationIpGuard.ip == key).values(updated_at=now)
+        ).rowcount
+        if touched:
+            break
+        try:
+            with db.begin_nested():
+                db.add(RegistrationIpGuard(ip=key, updated_at=now))
+            db.flush()
+            break
+        except IntegrityError:
+            continue  # another request created the guard row first; retry the update
+    else:
+        raise RuntimeError("could not serialise the registration decision for this address")
+
+    retry_after = registration_retry_after(db, ip=key, settings=settings, now=now)
+    if retry_after is None:
+        record_registration_attempt(db, ip=key)
+    return retry_after
 
 
 def record_registration_attempt(db: DbSession, *, ip: str) -> None:
@@ -144,6 +182,17 @@ def prune_registration_attempts(
     """Housekeeping: registration attempts only matter inside the recent abuse window."""
     cutoff = (now or utcnow()) - timedelta(days=older_than_days)
     stale = db.scalars(select(RegistrationAttempt).where(RegistrationAttempt.attempted_at < cutoff)).all()
+    for row in stale:
+        db.delete(row)
+    return len(stale)
+
+
+def prune_registration_ip_guards(
+    db: DbSession, *, older_than_days: int = 30, now: datetime | None = None
+) -> int:
+    """Housekeeping: guard rows are recreated on demand, so stale addresses cost nothing to drop."""
+    cutoff = (now or utcnow()) - timedelta(days=older_than_days)
+    stale = db.scalars(select(RegistrationIpGuard).where(RegistrationIpGuard.updated_at < cutoff)).all()
     for row in stale:
         db.delete(row)
     return len(stale)

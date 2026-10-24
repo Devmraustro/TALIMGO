@@ -4,8 +4,9 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-10-24 (§7.23 added, local verification only — no CI run includes it yet; the
-status table below was rechecked against GitHub Actions runs on 2026-10-21).
+Last updated: 2026-10-24 (§7.23 is CI-verified — GitHub Actions runs #157 and #158 passed all seven
+jobs at commit `f5c2afb`; §7.24 added for the per-IP decision serialisation, local verification only
+until the next CI run; the status table below was rechecked against GitHub Actions runs on 2026-10-21).
 
 ---
 
@@ -939,7 +940,7 @@ executed by the Linux CI run cited above, where the backend job's `Tests` step r
 translation is a pass-through when `os.name != "nt"`, and the Linux run confirms that the unchanged
 scripts behave identically with the new helper in place.
 
-### 7.23 Per-IP registration rate limit (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+### 7.23 Per-IP registration rate limit (2026-10-24) — IMPLEMENTED, TESTED, CI-verified (runs #157/#158 at `f5c2afb`)
 
 **The gap.** Threat model T15 ("Mass registration / cost abuse") was PARTIAL: login limiting,
 per-account AI caps and the per-learner write limit existed, but registration had no rate limit at
@@ -966,8 +967,44 @@ request. Maintenance prunes the table after 30 days (dry-run and CLI flag includ
 | Migration on empty DB + model parity | `alembic upgrade head` then `alembic check` with `TALIMGO_DATABASE_URL=sqlite:///./ci-migration-test.db` | upgrade reaches `a3f8c2d94b17`; "No new upgrade operations detected" |
 | Local-only AI policy | `python scripts/check_no_external_ai.py` | passed (80 source files, 7 URL literals) |
 
-**Not yet verified.** The GitHub Actions runs cited in §0.1 cover commit `d1be9b1`, before this change;
-no CI run includes it yet. The PostgreSQL CI job has not exercised migration `a3f8c2d94b17` (the
-local migration evidence above is SQLite only). Residual behaviour is documented in the threat model:
-per-IP counting shares one allowance across clients behind one NAT, and a same-instant race can
-overshoot by a request; the reverse proxy's stricter `/api/auth/*` `limit_req` remains the first line.
+**CI verification (2026-10-24).** GitHub Actions run **#157** (push, id 40061743757) and run
+**#158** (pull_request, id 40061746505) both concluded `success` with all seven jobs — including
+"PostgreSQL (migrations, startup and persistence)", which applied the full chain up to
+`a3f8c2d94b17` on PostgreSQL 16, ran the populated-legacy rehearsal and the backup/restore
+rehearsal — at head `f5c2afb`, the signed re-commit of this change (tree identical to `ca6500c`+
+`84a5caa`). The earlier "not yet CI-verified" caveat no longer applies.
+
+**Residual behaviour** is documented in the threat model: per-IP counting shares one allowance
+across clients behind one NAT; the reverse proxy's stricter `/api/auth/*` `limit_req` remains the
+cheaper first line. The same-instant overshoot noted when this section was first written was fixed
+separately — see §7.24.
+
+### 7.24 Registration decision serialisation per IP (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+
+**The gap.** §7.23's original check-then-insert admitted a same-instant race: every concurrently
+in-flight request from one address read the same below-cap count and each recorded an attempt, so
+the effective cap drifted upwards under bursts (bounded only by the edge's `limit_req` burst, and
+only where that edge config is deployed). The repository had already fixed the identical race for
+the AI quota with a conditional single-row UPDATE and a 10-thread regression test
+(`tests/test_ai_quota.py`), so the same class of defect could not be left standing here.
+
+**The change.** A new `registration_ip_guards` table (migration `b7e4f1a93c28`) holds exactly one
+row per client address. `claim_registration_slot` (`app/security.py`) updates that row first —
+a concurrent update on the same row blocks until the holder commits or rolls back, on both SQLite
+and PostgreSQL — and only then takes the rolling-window count and records the attempt. Refused
+requests still record nothing (the transaction rolls back), failed registrations still consume the
+allowance, and `Retry-After` derivation is unchanged. Maintenance prunes guard rows after the same
+30-day retention (`prune_registration_ip_guards`, reported as `registration_ip_guards_pruned`).
+
+**Evidence — local Windows run against this working tree (not CI):**
+
+| Check | Command | Result |
+|---|---|---|
+| Concurrency regression | `pytest tests/test_registration_rate_limits.py::test_concurrent_registrations_cannot_exceed_the_limit` | 10 threads, limit 3 → exactly 3 granted, 7 × `RegistrationRateLimited`, no unexpected errors, 3 attempt rows, 1 guard row |
+| Focused suites | `pytest tests/test_registration_rate_limits.py tests/test_maintenance.py tests/test_ai_quota.py` | 22 passed (incl. the new guard-pruning tests) |
+| Full backend suite | `pytest -p no:warnings` | exit 0 — 415 collected, 414 passed, 1 skipped (the documented `local_model` skip) |
+| Lint, format, static security | `ruff check app tests scripts`, `ruff format --check app tests scripts`, `bandit -q -r app` | all exit 0 |
+| Migration on empty DB + model parity | `alembic upgrade head` then `alembic check` | upgrade reaches `b7e4f1a93c28`; "No new upgrade operations detected" |
+
+**Not yet verified.** No CI run includes `b7e4f1a93c28` yet; the PostgreSQL job must re-run (the
+guard UPDATE is dialect-neutral SQL, but that is an argument, not evidence).

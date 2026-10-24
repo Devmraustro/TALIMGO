@@ -16,8 +16,12 @@ from app.maintenance import (
     prune_sessions,
     run_maintenance,
 )
-from app.models import LoginAttempt, RegistrationAttempt, Session
-from app.security import prune_login_attempts, prune_registration_attempts
+from app.models import LoginAttempt, RegistrationAttempt, RegistrationIpGuard, Session
+from app.security import (
+    prune_login_attempts,
+    prune_registration_attempts,
+    prune_registration_ip_guards,
+)
 from app.utils import utcnow
 from tests.conftest import register
 
@@ -147,6 +151,37 @@ def test_registration_attempt_pruning_keeps_recent_rows_and_drops_stale_ones(cli
         remaining = db.query(RegistrationAttempt).count()
 
     assert pruned == 3 and remaining == 2, "retention must be exact, not approximate"
+
+
+def test_registration_ip_guard_pruning_keeps_recent_addresses_and_drops_stale_ones(client) -> None:
+    now = utcnow()
+    with session_scope() as db:
+        db.add(
+            RegistrationIpGuard(
+                ip="203.0.113.8", updated_at=now - timedelta(days=LOGIN_ATTEMPT_RETENTION_DAYS + 1)
+            )
+        )
+        db.add(RegistrationIpGuard(ip="203.0.113.9", updated_at=now - timedelta(hours=1)))
+        db.commit()
+        pruned = prune_registration_ip_guards(db, now=now)
+        db.commit()
+        remaining = [row.ip for row in db.query(RegistrationIpGuard).all()]
+
+    assert pruned == 1 and remaining == ["203.0.113.9"], "a fresh address must keep its guard row"
+
+
+def test_run_maintenance_reports_and_prunes_registration_guards(client) -> None:
+    now = utcnow()
+    with session_scope() as db:
+        db.add(RegistrationIpGuard(ip="203.0.113.8", updated_at=now - timedelta(days=40)))
+        db.commit()
+        report = run_maintenance(db, now=now)
+        db.commit()
+
+    assert report.registration_ip_guards_pruned == 1
+    assert report.as_dict()["registration_ip_guards_pruned"] == 1
+    with session_scope() as db:
+        assert db.query(RegistrationIpGuard).count() == 0
 
 
 def test_audit_rows_are_not_pruned_by_maintenance(client) -> None:

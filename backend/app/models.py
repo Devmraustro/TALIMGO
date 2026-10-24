@@ -83,6 +83,22 @@ class RegistrationAttempt(Base):
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
 
+class RegistrationIpGuard(Base):
+    """One row per client IP; updating it serialises concurrent registration decisions (T15).
+
+    The row carries no decision of its own — the rolling-window count still comes from
+    ``registration_attempts``. It exists because a plain check-then-insert let every concurrently
+    in-flight request from one address read the same below-cap count and each record an attempt;
+    contending for this single row makes same-address decisions happen one at a time, like the
+    per-user conditional update that guards authenticated writes.
+    """
+
+    __tablename__ = "registration_ip_guards"
+
+    ip: Mapped[str] = mapped_column(String(64), primary_key=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Profile(Base):
     __tablename__ = "profiles"
 

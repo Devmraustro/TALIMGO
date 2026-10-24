@@ -30,11 +30,10 @@ from app.models import (
     User,
 )
 from app.security import (
+    claim_registration_slot,
     hash_password,
     hash_session_token,
     password_problems,
-    record_registration_attempt,
-    registration_retry_after,
     verify_password,
 )
 from app.utils import utcnow
@@ -83,12 +82,13 @@ def register_user(
     now: datetime | None = None,
 ) -> User:
     moment = now or utcnow()
-    retry_after = registration_retry_after(db, ip=ip, settings=settings, now=moment)
+    # Serialised per IP by the guard row, so the decision is taken against settled state and
+    # concurrent requests cannot overshoot the rolling-hour allowance. The attempt is counted even
+    # when the registration itself is refused, so repeated failures cannot probe the endpoint for
+    # free. Committed now, never rolled back with the request.
+    retry_after = claim_registration_slot(db, ip=ip, settings=settings, now=moment)
     if retry_after is not None:
         raise RegistrationRateLimited(retry_after)
-    # The attempt is counted even when the registration itself is refused, so repeated failures
-    # cannot probe the endpoint for free. Committed now, never rolled back with the request.
-    record_registration_attempt(db, ip=ip)
     db.commit()
 
     if not accept_terms:

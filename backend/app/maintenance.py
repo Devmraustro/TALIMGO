@@ -38,7 +38,11 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.db import session_scope
 from app.models import Session
-from app.security import prune_login_attempts, prune_registration_attempts
+from app.security import (
+    prune_login_attempts,
+    prune_registration_attempts,
+    prune_registration_ip_guards,
+)
 from app.utils import ensure_aware, utcnow
 
 logger = logging.getLogger("talimgo.maintenance")
@@ -52,6 +56,7 @@ SESSION_RETENTION_DAYS_AFTER_EXPIRY = 30
 class MaintenanceReport:
     login_attempts_pruned: int
     registration_attempts_pruned: int
+    registration_ip_guards_pruned: int
     sessions_pruned: int
     dry_run: bool
 
@@ -59,6 +64,7 @@ class MaintenanceReport:
         return {
             "login_attempts_pruned": self.login_attempts_pruned,
             "registration_attempts_pruned": self.registration_attempts_pruned,
+            "registration_ip_guards_pruned": self.registration_ip_guards_pruned,
             "sessions_pruned": self.sessions_pruned,
             "dry_run": self.dry_run,
         }
@@ -99,12 +105,16 @@ def run_maintenance(
     registrations = prune_registration_attempts(
         db, older_than_days=registration_attempt_retention_days, now=moment
     )
+    # The per-IP guard rows share the registration retention: they are recreated on demand, so
+    # dropping addresses that have not tried to register for a month costs nothing.
+    guards = prune_registration_ip_guards(db, older_than_days=registration_attempt_retention_days, now=moment)
     sessions = prune_sessions(db, older_than_days=session_retention_days, now=moment)
     if dry_run:
         db.rollback()
     return MaintenanceReport(
         login_attempts_pruned=attempts,
         registration_attempts_pruned=registrations,
+        registration_ip_guards_pruned=guards,
         sessions_pruned=sessions,
         dry_run=dry_run,
     )
