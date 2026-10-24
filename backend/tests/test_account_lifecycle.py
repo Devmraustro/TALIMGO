@@ -25,6 +25,7 @@ from app.models import (
     Goal,
     Item,
     Lesson,
+    LoginAttempt,
     MasteryEstimate,
     Objective,
     Plan,
@@ -199,6 +200,26 @@ def test_export_contains_every_category_before_deletion(ai_client_factory, monke
     assert created["me"]["user"]["id"]
 
 
+def test_export_covers_the_answers_and_plan_state_the_journey_created(ai_client_factory, monkeypatch) -> None:
+    """The export previously omitted the learner's submitted answers and plan-item state.
+
+    The endpoint's notice promises "everything TALIMGO stores about your account"; these are the
+    categories a learner would most want to take with them, so the omission was a real gap.
+    """
+    client, _created = _build_a_learner_with_history(ai_client_factory, monkeypatch)
+    body = client.get("/api/me/export").json()["account"]
+
+    assert body["diagnostic_attempts"] and body["diagnostic_responses"]
+    assert body["diagnostic_responses"][0]["response"], "submitted answers must be in the export"
+    assert body["practice_sessions"] and body["practice_responses"]
+    assert body["practice_responses"][0]["is_correct"] is True
+    assert body["plan_weeks"] and body["plan_items"]
+    assert any(item["status"] == "completed" for item in body["plan_items"]), (
+        "the journey completed a practice item; its worked state must be exported"
+    )
+    assert body["ai_usage"] and body["ai_usage"][0]["count"] >= 1
+
+
 def test_deletion_removes_learner_data_and_anonymises_audit(ai_client_factory, monkeypatch) -> None:
     client, created = _build_a_learner_with_history(ai_client_factory, monkeypatch)
     user_id = created["me"]["user"]["id"]
@@ -223,6 +244,29 @@ def test_deletion_removes_learner_data_and_anonymises_audit(ai_client_factory, m
             .count()
         )
     assert anonymised >= 1, "audit rows must stop naming the deleted learner"
+
+
+def test_deletion_removes_the_learners_login_attempts(ai_client_factory, monkeypatch) -> None:
+    """Login-attempt rows are keyed by the learner's email; they must not outlive the account.
+
+    They were previously left behind until the 30-day prune, so a deleted learner's email survived
+    in the database — inconsistent with the audit log's documented anonymisation.
+    """
+    client, _created = _build_a_learner_with_history(ai_client_factory, monkeypatch)
+    email = "lifecycle@example.com"
+    assert client.post("/api/auth/login", json={"email": email, "password": PASSWORD}).status_code == 200
+    with session_scope() as db:
+        assert db.query(LoginAttempt).filter(LoginAttempt.email == email).count() >= 1, (
+            "the journey must have recorded login attempts before deletion is meaningful"
+        )
+
+    deleted = client.post("/api/me/delete", json={"password": PASSWORD, "confirmation": "DELETE"})
+    assert deleted.status_code == 204, deleted.text
+
+    with session_scope() as db:
+        assert db.query(LoginAttempt).filter(LoginAttempt.email == email).count() == 0, (
+            "the deleted learner's email must not survive in login_attempts"
+        )
 
 
 def test_public_curriculum_survives_an_account_deletion(ai_client_factory, monkeypatch) -> None:

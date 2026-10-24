@@ -1008,3 +1008,30 @@ allowance, and `Retry-After` derivation is unchanged. Maintenance prunes guard r
 
 **Not yet verified.** No CI run includes `b7e4f1a93c28` yet; the PostgreSQL job must re-run (the
 guard UPDATE is dialect-neutral SQL, but that is an argument, not evidence).
+
+### 7.25 Export and deletion completeness (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+
+**The gap.** A review of `export_account`/`delete_account` found two data-rights defects. The
+export endpoint's notice promises "everything TALIMGO stores about your account", but the payload
+omitted the learner's diagnostic attempts and answers, practice sessions and answers, plan weeks
+and items (the plan's worked state) and the daily AI usage counters — precisely the categories a
+learner would most want to take with them. Deletion removed all owned tables but left
+`login_attempts` rows keyed by the learner's email address in place until the 30-day prune,
+inconsistent with the audit log's documented anonymisation.
+
+**The change.** `export_account` now includes `plan_weeks`, `plan_items`, `diagnostic_attempts`,
+`diagnostic_responses`, `practice_sessions`, `practice_responses` and `ai_usage` (the response
+schema is additive; existing consumers are unaffected). `delete_account` deletes the learner's
+`login_attempts` rows (only the address identifies the learner in them); the docstring records the
+policy. No migration is needed — no schema change.
+
+**Evidence — local Windows run against this working tree (not CI):**
+
+| Check | Command | Result |
+|---|---|---|
+| Account lifecycle suite | `pytest tests/test_account_lifecycle.py -p no:warnings` | 10 passed, incl. the new export-coverage and login-attempt-deletion tests |
+| Full backend suite | `pytest -p no:warnings` | see §0-adjacent note after the run: exit 0, 417 collected, 416 passed, 1 skipped |
+| Lint, format, static security | `ruff check app tests scripts`, `ruff format --check app tests scripts`, `bandit -q -r app` | all exit 0 |
+
+**Not yet verified.** No CI run includes this change yet; the frontend reads the export only as a
+download, so the additive payload needs no UI change.

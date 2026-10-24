@@ -17,6 +17,7 @@ from app.models import (
     DiagnosticResponse,
     Evidence,
     Goal,
+    LoginAttempt,
     MasteryEstimate,
     Plan,
     PlanItem,
@@ -211,6 +212,43 @@ def export_account(db: DbSession, user: User) -> dict:
         else []
     )
     sessions = list(db.scalars(select(Session).where(Session.user_id == user.id)))
+    diagnostic_attempts = list(
+        db.scalars(select(DiagnosticAttempt).where(DiagnosticAttempt.user_id == user.id))
+    )
+    diagnostic_responses = (
+        list(
+            db.scalars(
+                select(DiagnosticResponse)
+                .where(DiagnosticResponse.attempt_id.in_([row.id for row in diagnostic_attempts]))
+                .order_by(DiagnosticResponse.answered_at)
+            )
+        )
+        if diagnostic_attempts
+        else []
+    )
+    practice_sessions = list(db.scalars(select(PracticeSession).where(PracticeSession.user_id == user.id)))
+    practice_responses = (
+        list(
+            db.scalars(
+                select(PracticeResponse)
+                .where(PracticeResponse.session_id.in_([row.id for row in practice_sessions]))
+                .order_by(PracticeResponse.answered_at)
+            )
+        )
+        if practice_sessions
+        else []
+    )
+    plan_weeks = (
+        list(db.scalars(select(PlanWeek).where(PlanWeek.plan_id.in_([plan.id for plan in plans]))))
+        if plans
+        else []
+    )
+    plan_items = (
+        list(db.scalars(select(PlanItem).where(PlanItem.plan_id.in_([plan.id for plan in plans]))))
+        if plans
+        else []
+    )
+    ai_usage = list(db.scalars(select(AiUsage).where(AiUsage.user_id == user.id)))
 
     return {
         "account": {
@@ -268,6 +306,85 @@ def export_account(db: DbSession, user: User) -> dict:
             {"id": plan.id, "goal_id": plan.goal_id, "version": plan.version, "status": plan.status}
             for plan in plans
         ],
+        "plan_weeks": [
+            {
+                "id": week.id,
+                "plan_id": week.plan_id,
+                "week_number": week.week_number,
+                "theme_en": week.theme_en,
+                "theme_ar": week.theme_ar,
+            }
+            for week in plan_weeks
+        ],
+        "plan_items": [
+            {
+                "id": item.id,
+                "plan_id": item.plan_id,
+                "week_id": item.week_id,
+                "order_index": item.order_index,
+                "objective_id": item.objective_id,
+                "lesson_id": item.lesson_id,
+                "kind": item.kind,
+                "est_minutes": item.est_minutes,
+                "status": item.status,
+                "rationale_en": item.rationale_en,
+                "rationale_ar": item.rationale_ar,
+            }
+            for item in plan_items
+        ],
+        "diagnostic_attempts": [
+            {
+                "id": row.id,
+                "goal_id": row.goal_id,
+                "status": row.status,
+                "item_ids": row.item_ids,
+                "cursor": row.cursor,
+                "placement": row.placement,
+                "started_at": row.started_at.isoformat(),
+                "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+            }
+            for row in diagnostic_attempts
+        ],
+        "diagnostic_responses": [
+            {
+                "attempt_id": row.attempt_id,
+                "item_id": row.item_id,
+                "objective_id": row.objective_id,
+                "response": row.response,
+                "is_correct": row.is_correct,
+                "difficulty": row.difficulty,
+                "answered_at": row.answered_at.isoformat(),
+            }
+            for row in diagnostic_responses
+        ],
+        "practice_sessions": [
+            {
+                "id": row.id,
+                "goal_id": row.goal_id,
+                "plan_item_id": row.plan_item_id,
+                "objective_id": row.objective_id,
+                "status": row.status,
+                "target_items": row.target_items,
+                "item_ids": row.item_ids,
+                "started_at": row.started_at.isoformat(),
+                "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+                "abandoned_at": row.abandoned_at.isoformat() if row.abandoned_at else None,
+            }
+            for row in practice_sessions
+        ],
+        "practice_responses": [
+            {
+                "session_id": row.session_id,
+                "item_id": row.item_id,
+                "objective_id": row.objective_id,
+                "response": row.response,
+                "is_correct": row.is_correct,
+                "assisted": row.assisted,
+                "answered_at": row.answered_at.isoformat(),
+            }
+            for row in practice_responses
+        ],
+        "ai_usage": [{"day": row.day, "count": row.count} for row in ai_usage],
         "tutor_messages": [
             {
                 "thread_id": message.thread_id,
@@ -289,12 +406,15 @@ def delete_account(db: DbSession, user: User, *, password: str) -> None:
 
     Order matters: children are removed before parents so no foreign key is left dangling on
     databases without cascades. Audit rows are kept (they contain no learner content) but are
-    anonymised, which is documented behaviour rather than a silent exception.
+    anonymised, which is documented behaviour rather than a silent exception. Login-attempt rows
+    are keyed by the learner's email address, so they are deleted with the account rather than
+    left behind until routine pruning; only the address identifies the learner in them.
     """
     if not verify_password(password, user.password_hash):
         raise InvalidCredentials("Password is incorrect; the account was not deleted.")
 
     user_id = user.id
+    email = user.email
 
     # NB: selecting a single column yields the ids themselves; selecting `.id` again raised
     # AttributeError, so deleting an account that had ever used the tutor failed with a 500.
@@ -340,5 +460,6 @@ def delete_account(db: DbSession, user: User, *, password: str) -> None:
     db.query(AuditLog).filter(AuditLog.actor_user_id == user_id).update(
         {"actor_user_id": None, "target": "deleted-account"}, synchronize_session=False
     )
+    db.query(LoginAttempt).filter(LoginAttempt.email == email).delete(synchronize_session=False)
     db.query(User).filter(User.id == user_id).delete(synchronize_session=False)
     db.commit()
