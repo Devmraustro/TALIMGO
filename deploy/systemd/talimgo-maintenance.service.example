@@ -1,0 +1,38 @@
+# TALIMGO housekeeping — scheduled maintenance unit example.
+#
+# `python -m app.maintenance` prunes login attempts and expired sessions (30-day retention) and is
+# idempotent, so running it on a schedule is safe. It is separate from the API unit because it must not
+# restart or disturb the serving process.
+#
+# Install:
+#   sudo install -m 0644 deploy/systemd/talimgo-maintenance.service.example /etc/systemd/system/talimgo-maintenance.service
+#   sudo install -m 0644 deploy/systemd/talimgo-maintenance.timer.example   /etc/systemd/system/talimgo-maintenance.timer
+#   sudo systemctl daemon-reload && sudo systemctl enable --now talimgo-maintenance.timer
+#
+# Rehearse before trusting it: `sudo systemctl start talimgo-maintenance.service` then
+# `journalctl -u talimgo-maintenance --since today`. Run `python -m app.maintenance --dry-run` by hand
+# first if you want to see what it would delete.
+
+[Unit]
+Description=TALIMGO housekeeping (prune login attempts and expired sessions)
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=talimgo
+Group=talimgo
+WorkingDirectory=/srv/talimgo/backend
+EnvironmentFile=/etc/talimgo/talimgo.env
+ExecStart=/srv/talimgo/backend/.venv/bin/python -m app.maintenance
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=talimgo-maintenance
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/talimgo
