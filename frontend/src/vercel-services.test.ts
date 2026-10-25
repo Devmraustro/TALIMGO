@@ -10,9 +10,9 @@ function readRootVercelConfig(): {
   buildCommand: string;
   outputDirectory: string;
   headers: { source: string; headers: { key: string; value: string }[] }[];
-  routes: { src?: string; status?: number; handle?: string; dest?: string }[];
+  routes?: unknown;
   services?: unknown;
-  rewrites?: unknown;
+  rewrites?: { source: string; destination: string }[];
 } {
   return JSON.parse(readFileSync(resolve(repositoryRoot, "vercel.json"), "utf8")) as {
     framework: string;
@@ -20,9 +20,9 @@ function readRootVercelConfig(): {
     buildCommand: string;
     outputDirectory: string;
     headers: { source: string; headers: { key: string; value: string }[] }[];
-    routes: { src?: string; status?: number; handle?: string; dest?: string }[];
+    routes?: unknown;
     services?: unknown;
-    rewrites?: unknown;
+    rewrites?: { source: string; destination: string }[];
   };
 }
 
@@ -35,20 +35,32 @@ describe("root Vercel frontend-only configuration", () => {
     expect(config.buildCommand).toBe("npm run build --prefix frontend");
     expect(config.outputDirectory).toBe("frontend/dist");
     expect(config.services).toBeUndefined();
-    expect(config.rewrites).toBeUndefined();
+  });
+
+  it("never combines legacy routes with modern routing properties", () => {
+    // Vercel silently ignores `headers` (and rewrites/redirects) when the legacy `routes` key is
+    // present. This bit for real: the deployment of 2026-10-25 served the interface with no CSP,
+    // nosniff or X-Frame-Options because the headers block sat next to legacy routes. The modern
+    // schema (rewrites + headers) is therefore the only acceptable shape here.
+    const config = readRootVercelConfig();
+
+    expect(config.routes).toBeUndefined();
+    expect(config.rewrites).toBeDefined();
   });
 
   it("refuses API paths explicitly while the backend host is not provisioned", () => {
     const config = readRootVercelConfig();
+    const rewrites = config.rewrites ?? [];
 
-    expect(config.routes[0]).toEqual({
-      src: "^/api(?:/.*)?$",
-      status: 404,
+    // The API block must win before the SPA fallback, and its destination must not exist in the
+    // build output, so Vercel answers 404 instead of serving the interface for /api paths.
+    expect(rewrites[0]).toEqual({
+      source: "/api/:path*",
+      destination: "/api-not-hosted-here",
     });
-    expect(config.routes[1]).toEqual({ handle: "filesystem" });
-    expect(config.routes[2]).toEqual({
-      src: "^/(.*)$",
-      dest: "/index.html",
+    expect(rewrites[rewrites.length - 1]).toEqual({
+      source: "/((?!api/).*)",
+      destination: "/index.html",
     });
   });
 

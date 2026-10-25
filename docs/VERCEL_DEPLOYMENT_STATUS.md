@@ -1,11 +1,27 @@
 ﻿# Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-15**. Earlier public-host observations are preserved below with their original dates; this session could not re-fetch the public alias because the connected Vercel integration denied access.
+Status date: **2026-10-25**. Earlier public-host observations are preserved below with their original dates.
 This file records what was actually observed about the Vercel deployment from outside, what it can and
 cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
-**Nothing on the Vercel side was changed in this round.** No project setting, deployment, alias, domain,
-or environment variable was modified.
+## 2026-10-25 re-check (independent HTTP client, no Vercel integration needed for public reads)
+
+| Observation | Evidence |
+| --- | --- |
+| The public alias serves a **fresh, current build** | `GET https://talimgo-preview.vercel.app/` → 200 HTML with `Last-Modified: Sun, 25 Oct 2026 13:32:31 GMT` (a deployment built after the PR #1 merge `b53f655` is aliased). A local deterministic build of `main`'s frontend produces the **same asset hashes the alias serves** (`assets/index-DSvqwe8p.js`, `assets/index-CNJ153DT.css`), and the served bundle contains the current "API could not be reached from this browser" message. The old "stale `fa421ab` bundle" finding no longer applies |
+| `/api/*` still answers 404 | `GET /api/health` → 404 — no API is behind the static host; the interface's honest "API is absent" behaviour applies, exactly as designed |
+| **The interface ships with no security headers** | The only header set beyond Vercel defaults is HSTS (`max-age=63072000; includeSubDomains; preload`, Vercel's own value). **None** of the `vercel.json` headers (CSP, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy`) reach the response |
+| Root cause found and fixed in the repository | The root `vercel.json` combined the legacy `routes` key with a `headers` block; Vercel **silently ignores `headers` when legacy `routes` are present**. The file now uses the modern schema (`headers` + `rewrites`): routing semantics are preserved (`/api/*` → 404 via a rewrite to a nonexistent destination, SPA fallback for everything else) and the headers apply. `frontend/src/vercel-services.test.ts` now refuses any return to the legacy combination. **This takes effect on the next deployment — it was not live when written** |
+| No backend is deployed on Vercel | `https://talimgo-api.vercel.app` and its `/api/health` return Vercel `DEPLOYMENT_NOT_FOUND`, identical to a control domain that cannot exist. No production backend deployment is aliased there. The `talimgo-api` project could not be inspected further: the Vercel integration still denies project-scope reads (403), and no Vercel credentials exist on this machine |
+| CI state behind the deployment | GitHub Actions runs **#159** (push) and **#160** (pull_request) at `798fc04` and run **#161** (push on `main`) at merge commit `b53f655` all concluded `success` — 7/7 jobs each, including the PostgreSQL 16 migration job over `a3f8c2d94b17` and `b7e4f1a93c28`. `main` is CI-verified |
+
+**Owner actions remaining (unchanged in substance):** provision and configure the API host (the
+repository documents that FastAPI cannot run on Vercel as-is — a long-lived process, persistent
+PostgreSQL and migrations are required, e.g. the Alwaysdata PostgreSQL named in the deployment
+notes), join it to this alias via a Vercel rewrite of `/api/*` once its HTTPS hostname exists, and
+verify the live headers after this fix's next deployment.
+
+---
 
 **Access check on 2026-10-15:** the connected Vercel integration can list projects and returned `talimgo-preview`
 (project ID `prj_RX2NmJBTcZTkygGNgZKcbhqBk7aA`, account ID `team_iubQ9zIhIVUMqAj1vvq59Dk9`). However,
