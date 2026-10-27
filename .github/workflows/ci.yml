@@ -126,20 +126,43 @@ jobs:
         run: python scripts/postgres_smoke.py
 
       - name: Install PostgreSQL client tools
-        # Version-pinned package names disappear as runner images move on (this step broke when
-        # ubuntu-latest stopped shipping postgresql-client-16); any client >= the server major
-        # can dump it, so prefer what exists and verify the tools afterwards.
+        # The rehearsal drives the service's PostgreSQL 16 with the *matching* 16 client: distro
+        # version-pinned packages vanish as runner images move on (ubuntu-latest → Ubuntu 26
+        # dropped postgresql-client-16), so take it from the PGDG apt repository, falling back
+        # to whatever client the image offers. Versions are printed for the record either way.
         run: |
           if ! command -v pg_dump >/dev/null; then
             sudo apt-get update
-            sudo apt-get install -y postgresql-client-16 \
-              || sudo apt-get install -y postgresql-client
+            sudo apt-get install -y postgresql-client-16 || {
+              sudo install -d /usr/share/postgresql-common/pgdg
+              curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+                | sudo gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
+              echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+                | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+              sudo apt-get update
+              sudo apt-get install -y postgresql-client-16
+            } || sudo apt-get install -y postgresql-client
           fi
           pg_dump --version
           pg_restore --version
 
       - name: Dump, restore into a scratch database and exercise the restored API
-        run: python scripts/postgres_backup_restore.py
+        # Output is mirrored into the job summary on failure so the rehearsal's own diagnostics
+        # survive even where raw job logs are not retrievable.
+        run: |
+          set +e
+          python scripts/postgres_backup_restore.py > /tmp/pg-rehearsal.out 2>&1
+          status=$?
+          cat /tmp/pg-rehearsal.out
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### PostgreSQL backup/restore rehearsal output (tail)"
+              echo '```'
+              tail -n 60 /tmp/pg-rehearsal.out
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$status"
 
   proxy-tls-smoke:
     name: Reverse proxy (TLS, redirects and trusted forwarding headers)
