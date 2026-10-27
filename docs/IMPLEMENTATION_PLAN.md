@@ -1042,7 +1042,7 @@ policy. No migration is needed — no schema change.
 **Not yet verified.** No CI run includes this change yet; the frontend reads the export only as a
 download, so the additive payload needs no UI change.
 
-### 7.26 Completion pass: item kinds, projects, spaced review, second path, frontend wiring (2026-10-27) — IMPLEMENTED, TESTED locally, CI pending
+### 7.26 Completion pass: item kinds, projects, spaced review, second path, frontend wiring (2026-10-27) — IMPLEMENTED, TESTED, CI-verified except one infra step (fixed below)
 
 Five checkpoints on `arena/8a35da3f-talimgo`, each committed separately:
 
@@ -1075,8 +1075,24 @@ billing, email verification/password reset (need an email provider decision), an
 real hosting/PostgreSQL provisioning, real local-model runtime evidence, subject-matter and
 human WCAG review, and every Master §19 `DEC-*` item. FSRS was evaluated and deferred (ADR 0009).
 
-**Evidence** (local runs at each checkpoint; full-suite numbers in the PR description): targeted
-pytest per checkpoint (43 + 35 + 59), ruff/format/bandit clean, `alembic check` no drift,
-`check_no_external_ai.py` clean; frontend typecheck clean, 74 tests passed/1 skipped, build +
-bundle check clean. CI verification of this branch happens on push; this section is updated in
-the same PR once observed.
+**Evidence.** Local: full backend suite **446 passed / 4 skipped**, ruff/format/bandit clean,
+`alembic check` no drift, `check_no_external_ai.py` clean (92 files); frontend typecheck clean,
+**75 passed / 1 skipped**, build/bundle/licences/`npm audit` clean. A live end-to-end smoke
+through the Vite dev proxy then caught a real contract drift the mocks had hidden
+(`GET /api/projects` 422 without `path_id`, wrong submissions route, diverged field names) —
+fixed and re-verified live (`23afd7e`).
+
+CI (PR #5, runs `40505194216`/`40505202579`, observed 2026-10-27): Backend, Frontend,
+Chromium browser journey + axe, licence audit, local-only-AI gate and reverse-proxy jobs all
+**pass**; inside the PostgreSQL job the migration chain, drift check and startup/persistence
+smoke all **pass** — the job failed only at `apt-get install postgresql-client-16`, a
+version-pinned package that vanished from current runner images (infra drift, unrelated to this
+change, last green on `main` 2026-10-25). The step now installs any available client and
+verifies `pg_dump`/`pg_restore`; the re-run result is recorded in the PR.
+
+Vercel (observed via API, 2026-10-27): **talimgo-api deployments are READY** for the first time
+(`dpl_CnZUm28r885KbaHno387MRsd26zm`, `dpl_2U3kuErYDRzL15m76zuSn55EJwLy`) — the
+`backend/vercel.json` fix works; runtime still needs owner-provisioned PostgreSQL/secrets.
+talimgo-preview deployments were **CANCELED by the project's Verified-Commits protection**
+("commit signature couldn't be verified") because this work's commits are unsigned; the owner
+(or Z Code on the owner's machine) resolves this by merging/pushing with the signing key.

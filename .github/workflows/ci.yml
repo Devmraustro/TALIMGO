@@ -126,9 +126,17 @@ jobs:
         run: python scripts/postgres_smoke.py
 
       - name: Install PostgreSQL client tools
+        # Version-pinned package names disappear as runner images move on (this step broke when
+        # ubuntu-latest stopped shipping postgresql-client-16); any client >= the server major
+        # can dump it, so prefer what exists and verify the tools afterwards.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
+          if ! command -v pg_dump >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client-16 \
+              || sudo apt-get install -y postgresql-client
+          fi
+          pg_dump --version
+          pg_restore --version
 
       - name: Dump, restore into a scratch database and exercise the restored API
         run: python scripts/postgres_backup_restore.py
