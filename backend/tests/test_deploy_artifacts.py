@@ -104,6 +104,18 @@ def test_shell_helpers_parse(script: str) -> None:
     assert is_executable_in_the_repository(path), f"{script} must be executable"
 
 
+def test_backend_vercel_config_never_runs_the_frontend_build() -> None:
+    # The talimgo-api Vercel project uses backend/ as its root directory. Without its own
+    # vercel.json it inherited the repository-root frontend commands and every production
+    # deployment died running `npm ci --prefix frontend` where no frontend lockfile exists
+    # (dpl_3TCjz4g1JGrVxAEfqDa421zHFbWz). The backend config must stay Python-only.
+    config = json.loads((BACKEND / "vercel.json").read_text(encoding="utf-8"))
+    assert config.get("framework") == "fastapi"
+    for key in ("installCommand", "buildCommand", "outputDirectory"):
+        value = config.get(key)
+        assert value is None or "npm" not in str(value), f"backend vercel.json must not run npm ({key})"
+
+
 def test_the_api_unit_enforces_the_documented_start_order() -> None:
     """Preflight, then migrations, then start, then a readiness probe — in that order."""
     unit = unit_directives(API_UNIT)

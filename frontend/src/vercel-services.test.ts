@@ -64,6 +64,16 @@ describe("root Vercel frontend-only configuration", () => {
     });
   });
 
+  it("gives the backend project its own Python-only config", () => {
+    // talimgo-api's root directory is backend/; without this file it inherited the root
+    // frontend commands and failed every production build inside npm.
+    const backend = JSON.parse(
+      readFileSync(resolve(repositoryRoot, "backend", "vercel.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(backend.framework).toBe("fastapi");
+    expect(JSON.stringify(backend)).not.toContain("npm");
+  });
+
   it("keeps security headers on all served paths", () => {
     const config = readRootVercelConfig();
 

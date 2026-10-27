@@ -979,7 +979,10 @@ across clients behind one NAT; the reverse proxy's stricter `/api/auth/*` `limit
 cheaper first line. The same-instant overshoot noted when this section was first written was fixed
 separately — see §7.24.
 
-### 7.24 Registration decision serialisation per IP (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+### 7.24 Registration decision serialisation per IP (2026-10-24) — IMPLEMENTED, TESTED, CI-verified
+
+> CI status corrected 2026-10-27: GitHub Actions on `main` includes this change and the last five
+> runs observed that day were green (see §7.26). The original "not yet CI-verified" caveat was stale.
 
 **The gap.** §7.23's original check-then-insert admitted a same-instant race: every concurrently
 in-flight request from one address read the same below-cap count and each recorded an attempt, so
@@ -1009,7 +1012,10 @@ allowance, and `Retry-After` derivation is unchanged. Maintenance prunes guard r
 **Not yet verified.** No CI run includes `b7e4f1a93c28` yet; the PostgreSQL job must re-run (the
 guard UPDATE is dialect-neutral SQL, but that is an argument, not evidence).
 
-### 7.25 Export and deletion completeness (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+### 7.25 Export and deletion completeness (2026-10-24) — IMPLEMENTED, TESTED, CI-verified
+
+> CI status corrected 2026-10-27, same observation as §7.24. §7.26 extended the export/deletion
+> coverage again for project submissions and flashcard state.
 
 **The gap.** A review of `export_account`/`delete_account` found two data-rights defects. The
 export endpoint's notice promises "everything TALIMGO stores about your account", but the payload
@@ -1035,3 +1041,42 @@ policy. No migration is needed — no schema change.
 
 **Not yet verified.** No CI run includes this change yet; the frontend reads the export only as a
 download, so the additive payload needs no UI change.
+
+### 7.26 Completion pass: item kinds, projects, spaced review, second path, frontend wiring (2026-10-27) — IMPLEMENTED, TESTED locally, CI pending
+
+Five checkpoints on `arena/8a35da3f-talimgo`, each committed separately:
+
+1. **Four new deterministic item kinds** (`74946dd`): `mcq_multi` (all-and-only set equality),
+   `numeric` (tolerance; Arabic-Indic digits, U+066B decimal separator, grouping separators),
+   `ordering` (exact sequence; served shuffled so the key order never leaks), `true_false`.
+   Canonical feedback answers for every kind; `verify_expr` extended to numeric keys. Pure
+   `app/learning/review.py` added (review-queue ordering + flashcard ladder).
+2. **Projects + review backend** (`d56bbf4`, ADR 0008/0009): `projects`/`project_submissions`/
+   `flashcard_states` tables (migration `d5b8e0f13a72`), deterministic rubric acceptance,
+   one-shot `project` evidence, plan-item completion, review queue + review-mode sessions,
+   seen-only flashcards, export/deletion coverage, admin audit-log endpoint (closes threat-model
+   T17's TODO).
+3. **Second launch path** (`68c79b6`): `frontend-foundations` — 8 objectives, bilingual lessons,
+   24 items across all six kinds, capstone project. **PROPOSED content, not yet subject-reviewed**
+   (same standing as the Python path's original content). Python path gained 8 new-kind items
+   (44 total; diagnostic pool unchanged). Planner: build objectives are never downgraded to a
+   confirmation quiz.
+4. **Frontend** (`1d05a9d`): kind-aware `ItemForm`; **bug fix** — `plan_item_id`/`goal_id`/`mode`
+   now thread through to session creation, so the roadmap step actually completes from the real
+   UI (previously only API clients ticked steps); Projects workspace, review card, flashcards;
+   hash routing for seven views; Help view (honest pre-MVP copy); goal draft persistence;
+   default goal path pinned to Python.
+5. **Deployment + docs** (this section): `backend/vercel.json` stops the `talimgo-api` project
+   inheriting the root frontend build commands (its production builds died in npm); ADRs
+   0008/0009; stale CI-status claims in §7.24/§7.25 corrected; Vercel status doc updated.
+
+**Deliberately not done here** (owner/infrastructure decisions, specced in the Z Code handoff):
+billing, email verification/password reset (need an email provider decision), analytics events,
+real hosting/PostgreSQL provisioning, real local-model runtime evidence, subject-matter and
+human WCAG review, and every Master §19 `DEC-*` item. FSRS was evaluated and deferred (ADR 0009).
+
+**Evidence** (local runs at each checkpoint; full-suite numbers in the PR description): targeted
+pytest per checkpoint (43 + 35 + 59), ruff/format/bandit clean, `alembic check` no drift,
+`check_no_external_ai.py` clean; frontend typecheck clean, 74 tests passed/1 skipped, build +
+bundle check clean. CI verification of this branch happens on push; this section is updated in
+the same PR once observed.
