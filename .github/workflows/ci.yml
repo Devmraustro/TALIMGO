@@ -147,8 +147,9 @@ jobs:
           pg_restore --version
 
       - name: Dump, restore into a scratch database and exercise the restored API
-        # Output is mirrored into the job summary on failure so the rehearsal's own diagnostics
-        # survive even where raw job logs are not retrievable.
+        # On failure the rehearsal's output tail (plus the client versions that ran) is emitted
+        # as workflow-command annotations and into the job summary, so the diagnostics survive
+        # even where raw job logs are not retrievable.
         run: |
           set +e
           python scripts/postgres_backup_restore.py > /tmp/pg-rehearsal.out 2>&1
@@ -161,6 +162,19 @@ jobs:
               tail -n 60 /tmp/pg-rehearsal.out
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
+            python3 - <<'PYEOF'
+          import subprocess
+          from pathlib import Path
+          versions = ""
+          for tool in ("pg_dump", "pg_restore"):
+              try:
+                  versions += subprocess.run([tool, "--version"], capture_output=True, text=True).stdout.strip() + " | "
+              except OSError:
+                  versions += f"{tool} MISSING | "
+          tail = Path("/tmp/pg-rehearsal.out").read_text(errors="replace")[-1600:]
+          message = (versions + tail).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=pg-rehearsal-output::{message}")
+          PYEOF
           fi
           exit "$status"
 
