@@ -31,6 +31,7 @@ from app.routers import (
     me,
     plans,
     practice,
+    projects,
     tutor,
 )
 
@@ -120,6 +121,7 @@ def create_app() -> FastAPI:
         plans.router,
         dashboard.router,
         practice.router,
+        projects.router,
         tutor.router,
         admin.router,
     ):

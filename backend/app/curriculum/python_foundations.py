@@ -1197,6 +1197,70 @@ PATH: dict[str, Any] = {
                     "| الشرح | تشرح سبب الخطأ لا التعديل فقط |\n"
                 ),
             },
+            "project": {
+                "id": "py:project:wordcount",
+                "title_en": "Build: wordcount.py",
+                "title_ar": "مشروع: أداة wordcount.py",
+                "brief_md_en": (
+                    "## Brief\n"
+                    "Write `wordcount.py` that takes a file path and prints the number of lines, the "
+                    "number of words, and the five most frequent words.\n\n"
+                    "## Requirements\n"
+                    "- Accept the path as `sys.argv[1]`.\n"
+                    "- Handle a missing file with a friendly message and exit code 1.\n"
+                    "- Count words case-insensitively and ignore punctuation.\n"
+                    "- Use a dictionary for the counts and `sorted` for the top five.\n"
+                    '- Include at least two functions and a `if __name__ == "__main__":` guard.\n\n'
+                    "## Submitting\n"
+                    "Paste your full program as the artifact. In the reflection, explain one bug you "
+                    "found and fixed — why it happened, not only what you changed. Check each rubric "
+                    "row only when you have actually run the program and seen it behave that way."
+                ),
+                "brief_md_ar": (
+                    "## التعريف\n"
+                    "اكتب `wordcount.py` يأخذ مسار ملف ويطبع عدد الأسطر وعدد الكلمات والكلمات الخمس "
+                    "الأكثر تكراراً.\n\n"
+                    "## المتطلبات\n"
+                    "- استقبل المسار عبر `sys.argv[1]`.\n"
+                    "- تعامل مع الملف المفقود برسالة واضحة ورمز خروج 1.\n"
+                    "- احسب الكلمات دون حساسية لحالة الأحرف وتجاهل الترقيم.\n"
+                    "- استخدم قاموساً للعدّ و`sorted` للخمس الأولى.\n"
+                    '- ضمّن دالتين على الأقل وحماية `if __name__ == "__main__":`.\n\n'
+                    "## التسليم\n"
+                    "الصق برنامجك كاملاً بوصفه العمل المُسلَّم. وفي التأمل اشرح خطأً واحداً اكتشفته "
+                    "وأصلحته — لماذا حدث، لا ما عدّلته فقط. لا تعلّم أي صف في سلّم التقييم إلا بعد أن "
+                    "تشغّل البرنامج فعلاً وتراه يتصرف كذلك."
+                ),
+                "rubric": [
+                    {
+                        "id": "runs_correctly",
+                        "label_en": "Runs correctly on a normal text file (lines, words, top five)",
+                        "label_ar": "يعمل صحيحاً على ملف نصي عادي (أسطر وكلمات والخمس الأولى)",
+                        "required": True,
+                    },
+                    {
+                        "id": "handles_errors",
+                        "label_en": "Missing file and empty file are both handled gracefully",
+                        "label_ar": "يعالج الملف المفقود والملف الفارغ بهدوء",
+                        "required": True,
+                    },
+                    {
+                        "id": "structure",
+                        "label_en": "Two or more clear functions and a __main__ guard, no duplication",
+                        "label_ar": "دالتان واضحتان على الأقل وحماية __main__ دون تكرار",
+                        "required": True,
+                    },
+                    {
+                        "id": "explanation",
+                        "label_en": "The reflection explains why a bug happened, not just the fix",
+                        "label_ar": "التأمل يشرح سبب حدوث الخطأ لا إصلاحه فقط",
+                        "required": True,
+                    },
+                ],
+                "min_artifact_chars": 200,
+                "min_reflection_chars": 40,
+                "est_minutes": 90,
+            },
             "items": [
                 {
                     "id": "py:project:q1",

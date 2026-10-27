@@ -308,6 +308,12 @@ class PracticeSession(Base):
     goal_id: Mapped[str | None] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
     plan_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     objective_id: Mapped[str] = mapped_column(ForeignKey("objectives.id"), index=True)
+    # Why the session was started: ordinary plan practice, or spaced review of an objective the
+    # review queue surfaced (app/learning/review.py). Evidence is `practice` either way — a review
+    # answer is a practice attempt at the objective; the mode is bookkeeping for the learner.
+    mode: Mapped[str] = mapped_column(
+        String(20), default="practice", server_default="practice", nullable=False
+    )
     status: Mapped[str] = mapped_column(String(20), default="in_progress")  # in_progress|completed|abandoned
     # The session's completion target, frozen when the session is created: `target_items` is what was
     # requested and `item_ids` is the resolved plan (the requested size clamped to the item pool).
@@ -332,6 +338,70 @@ class PracticeResponse(Base):
     is_correct: Mapped[bool] = mapped_column(Boolean)
     assisted: Mapped[bool] = mapped_column(Boolean, default=False)
     answered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class Project(Base):
+    """An authored build brief (content as data, mirrored from the curriculum by the loader).
+
+    ``rubric`` is a list of ``{id, label_en, label_ar, required}`` criteria the learner checks
+    their own work against; acceptance is deterministic over that checklist plus artifact and
+    reflection minima (ADR 0008). Like objectives, projects are referenced, never owned, by plans.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    path_id: Mapped[str] = mapped_column(String(64), index=True)
+    objective_id: Mapped[str] = mapped_column(ForeignKey("objectives.id"), index=True)
+    title_en: Mapped[str] = mapped_column(String(200))
+    title_ar: Mapped[str] = mapped_column(String(200), default="")
+    brief_md_en: Mapped[str] = mapped_column(Text, default="")
+    brief_md_ar: Mapped[str] = mapped_column(Text, default="")
+    rubric: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    min_artifact_chars: Mapped[int] = mapped_column(Integer, default=200)
+    min_reflection_chars: Mapped[int] = mapped_column(Integer, default=40)
+    est_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    sequence: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ProjectSubmission(Base):
+    """One learner submission of project work. Attempts are kept, so progress is auditable."""
+
+    __tablename__ = "project_submissions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("psub"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    goal_id: Mapped[str | None] = mapped_column(ForeignKey("goals.id", ondelete="SET NULL"), nullable=True)
+    plan_item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    objective_id: Mapped[str] = mapped_column(String(80), index=True)
+    artifact_text: Mapped[str] = mapped_column(Text)
+    reflection_text: Mapped[str] = mapped_column(Text, default="")
+    rubric_checks: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    status: Mapped[str] = mapped_column(String(20))  # accepted | needs_work
+    met_criteria: Mapped[list[str]] = mapped_column(JSON, default=list)
+    missing_criteria: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # True only for the first acceptance of this objective, the one that recorded project
+    # evidence; repeat acceptances cannot farm mastery successes (ADR 0008).
+    evidence_recorded: Mapped[bool] = mapped_column(Boolean, default=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class FlashcardState(Base):
+    """Per-(learner, item) flashcard schedule. Study data only: it never feeds mastery (ADR 0009)."""
+
+    __tablename__ = "flashcard_states"
+    __table_args__ = (UniqueConstraint("user_id", "item_id", name="uq_flashcard_user_item"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("fcs"))
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    item_id: Mapped[str] = mapped_column(String(80), index=True)
+    objective_id: Mapped[str] = mapped_column(String(80), index=True)
+    repetitions: Mapped[int] = mapped_column(Integer, default=0)
+    interval_days: Mapped[float] = mapped_column(Float, default=0.0)
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    last_rating: Mapped[str] = mapped_column(String(10), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
 class TutorThread(Base):
@@ -385,6 +455,7 @@ __all__ = [
     "DiagnosticAttempt",
     "DiagnosticResponse",
     "Evidence",
+    "FlashcardState",
     "Goal",
     "Item",
     "Lesson",
@@ -397,6 +468,8 @@ __all__ = [
     "PracticeResponse",
     "PracticeSession",
     "Profile",
+    "Project",
+    "ProjectSubmission",
     "Session",
     "TutorMessage",
     "TutorThread",

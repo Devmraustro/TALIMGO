@@ -14,7 +14,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from app.curriculum.registry import PATHS
-from app.models import Item, Lesson, Objective
+from app.models import Item, Lesson, Objective, Project
 
 
 def _upsert_objectives(db: Session, path: dict) -> int:
@@ -85,17 +85,44 @@ def _upsert_items(db: Session, path: dict) -> int:
     return count
 
 
+def _upsert_projects(db: Session, path: dict) -> int:
+    count = 0
+    for objective_data in path["objectives"]:
+        project_data = objective_data.get("project")
+        if not project_data:
+            continue
+        project = db.get(Project, project_data["id"])
+        if project is None:
+            project = Project(id=project_data["id"])
+            db.add(project)
+        project.path_id = path["id"]
+        project.objective_id = objective_data["id"]
+        project.title_en = project_data["title_en"]
+        project.title_ar = project_data.get("title_ar", "")
+        project.brief_md_en = project_data.get("brief_md_en", "")
+        project.brief_md_ar = project_data.get("brief_md_ar", "")
+        project.rubric = list(project_data.get("rubric", []))
+        project.min_artifact_chars = int(project_data.get("min_artifact_chars", 200))
+        project.min_reflection_chars = int(project_data.get("min_reflection_chars", 40))
+        project.est_minutes = int(project_data.get("est_minutes", 60))
+        project.sequence = int(objective_data.get("sequence", 0))
+        count += 1
+    db.flush()
+    return count
+
+
 def load_path(db: Session, path: dict) -> dict[str, int]:
     """Upsert one path; returns counts written."""
     return {
         "objectives": _upsert_objectives(db, path),
         "lessons": _upsert_lessons(db, path),
         "items": _upsert_items(db, path),
+        "projects": _upsert_projects(db, path),
     }
 
 
 def load_all(db: Session) -> dict[str, int]:
-    totals = {"paths": 0, "objectives": 0, "lessons": 0, "items": 0}
+    totals = {"paths": 0, "objectives": 0, "lessons": 0, "items": 0, "projects": 0}
     for path in PATHS.values():
         counts = load_path(db, path)
         totals["paths"] += 1

@@ -434,6 +434,7 @@ def start_practice(
     size: int = 5,
     goal_id: str | None = None,
     plan_item_id: str | None = None,
+    mode: str = "practice",
     now: datetime | None = None,
 ) -> PracticeSession:
     objective = db.get(Objective, objective_id)
@@ -456,6 +457,7 @@ def start_practice(
         goal_id=resolved_goal_id,
         plan_item_id=plan_item_id,
         objective_id=objective_id,
+        mode=mode if mode in {"practice", "review"} else "practice",
         status="in_progress",
         target_items=target,
         item_ids=[row.id for row in pool[:target]],

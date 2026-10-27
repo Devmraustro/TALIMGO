@@ -305,11 +305,14 @@ class PracticeStartIn(BaseModel):
     plan_item_id: str | None = None
     goal_id: str | None = None
     size: int = Field(default=5, ge=1, le=20)
+    # `review` sessions come from the spaced-review queue; grading and evidence are identical.
+    mode: Literal["practice", "review"] = "practice"
 
 
 class PracticeSessionOut(BaseModel):
     session_id: str
     objective_id: str
+    mode: str = "practice"
     status: str
     item: ItemPublic | None
     answered: int
@@ -333,6 +336,105 @@ class EvidenceOut(BaseModel):
     assisted: bool
     kind: str
     occurred_at: datetime
+
+
+# --------------------------------------------------------------------------------------
+# Projects (the BUILD step)
+# --------------------------------------------------------------------------------------
+
+
+class ProjectCriterionOut(BaseModel):
+    id: str
+    label: str
+    required: bool
+
+
+class ProjectOut(BaseModel):
+    id: str
+    path_id: str
+    objective_id: str
+    objective_title: str
+    title: str
+    brief_md: str
+    rubric: list[ProjectCriterionOut]
+    min_artifact_chars: int
+    min_reflection_chars: int
+    est_minutes: int
+    my_status: str | None = None
+    attempts: int = 0
+
+
+class ProjectSubmissionIn(BaseModel):
+    # Bounds keep a submission well inside the deployment request-size guard while leaving room
+    # for a real small program or page source as the artifact.
+    artifact_text: str = Field(min_length=1, max_length=60000)
+    reflection_text: str = Field(default="", max_length=5000)
+    rubric_checks: dict[str, bool] = Field(default_factory=dict)
+    goal_id: str | None = None
+    plan_item_id: str | None = None
+
+
+class ProjectSubmissionOut(BaseModel):
+    id: str
+    project_id: str
+    objective_id: str
+    goal_id: str | None
+    plan_item_id: str | None
+    status: str
+    met_criteria: list[str]
+    missing_criteria: list[str]
+    artifact_text: str
+    reflection_text: str
+    evidence_recorded: bool
+    submitted_at: datetime
+
+
+# --------------------------------------------------------------------------------------
+# Spaced review: queue + flashcards
+# --------------------------------------------------------------------------------------
+
+
+class ReviewQueueItemOut(BaseModel):
+    objective_id: str
+    objective_title: str
+    reason: Literal["recall_below_target", "spaced_confirmation_due"]
+    retrievability: float | None
+    phase: str
+    last_evidence_at: datetime | None
+
+
+class ReviewQueueOut(BaseModel):
+    items: list[ReviewQueueItemOut]
+    due_count: int
+
+
+class FlashcardOut(BaseModel):
+    item_id: str
+    objective_id: str
+    objective_title: str
+    prompt: str
+    answer: str
+    explanation: str
+    repetitions: int
+    due_at: datetime
+    is_due: bool
+
+
+class FlashcardsOut(BaseModel):
+    cards: list[FlashcardOut]
+    due_count: int
+
+
+class FlashcardRateIn(BaseModel):
+    rating: Literal["again", "good"]
+
+
+class FlashcardStateOut(BaseModel):
+    item_id: str
+    repetitions: int
+    interval_days: float
+    due_at: datetime
+    last_rating: str
 
 
 # --------------------------------------------------------------------------------------
