@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import {
-  api,
-  ApiError,
-  type ProjectDetail,
-  type ProjectSubmission,
-  type ProjectSummary,
-} from "../lib/api";
+import { api, ApiError, type Project, type ProjectSubmission } from "../lib/api";
 import type { StringKey } from "../lib/i18n";
 import { Markdown } from "./Markdown";
 
@@ -24,8 +18,8 @@ interface ProjectsPanelProps {
  * reflection and the rubric attestations, and shows the exact gaps when work is not accepted yet.
  */
 export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }: ProjectsPanelProps) {
-  const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
-  const [detail, setDetail] = useState<ProjectDetail | null>(null);
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [detail, setDetail] = useState<Project | null>(null);
   const [history, setHistory] = useState<ProjectSubmission[]>([]);
   const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [artifact, setArtifact] = useState("");
@@ -36,7 +30,7 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
 
   const loadList = useCallback(async () => {
     try {
-      const list = await api.get<ProjectSummary[]>("/api/projects");
+      const list = await api.get<Project[]>("/api/projects");
       setProjects(list);
     } catch {
       setProjects([]);
@@ -48,12 +42,13 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
       setBusy(true);
       setError(null);
       try {
-        const [loadedDetail, loadedHistory] = await Promise.all([
-          api.get<ProjectDetail>(`/api/projects/${projectId}`),
-          api.get<ProjectSubmission[]>(`/api/projects/${projectId}/submissions`),
+        const [loadedDetail, mine] = await Promise.all([
+          api.get<Project>(`/api/projects/${projectId}`),
+          api.get<ProjectSubmission[]>("/api/projects/submissions/mine?limit=200"),
         ]);
         setDetail(loadedDetail);
-        setHistory(loadedHistory);
+        // Portfolio is latest-first; history reads oldest-first like a work log.
+        setHistory(mine.filter((row) => row.project_id === projectId).reverse());
         setChecks({});
         setLastResult(null);
       } catch (cause) {
@@ -123,6 +118,9 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
               <span className="pill">build</span>
               <span>{project.title}</span>
               <span className="muted">{t("plan.minutes", { n: project.est_minutes })}</span>
+              {project.my_status === "accepted" ? (
+                <span className="pill success">{t("projects.accepted")}</span>
+              ) : null}
               <button type="button" className="secondary" onClick={() => void open(project.id)}>
                 {t("projects.open")}
               </button>
@@ -137,11 +135,8 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
     const keyed = `projects.missing.${code}` as StringKey;
     const translated = t(keyed);
     if (translated !== keyed) return translated;
-    if (code.startsWith("rubric:")) {
-      const criterion = detail.rubric.find((entry) => entry.id === code.slice("rubric:".length));
-      return criterion ? criterion.label : code;
-    }
-    return code;
+    const criterion = detail.rubric.find((entry) => entry.id === code);
+    return criterion ? criterion.label : code;
   };
 
   return (
@@ -150,7 +145,9 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
         {t("projects.back")}
       </button>
       <h2 id="project-heading">{detail.title}</h2>
-      <p className="muted">{t("plan.minutes", { n: detail.est_minutes })}</p>
+      <p className="muted">
+        {detail.objective_title} · {t("plan.minutes", { n: detail.est_minutes })}
+      </p>
 
       <h3>{t("projects.brief")}</h3>
       <Markdown source={detail.brief_md} />
@@ -171,16 +168,16 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
           {lastResult.status === "accepted" && lastResult.evidence_recorded ? (
             <p className="muted">{t("projects.evidenceRecorded")}</p>
           ) : null}
-          {lastResult.status === "accepted" && lastResult.plan_item_completed ? (
+          {lastResult.status === "accepted" && lastResult.plan_item_id ? (
             <p className="muted">{t("projects.planCompleted")}</p>
           ) : null}
-          {lastResult.missing.length > 0 ? (
+          {lastResult.missing_criteria.length > 0 ? (
             <>
               <p>
                 <strong>{t("projects.missing")}</strong>
               </p>
               <ul>
-                {lastResult.missing.map((code) => (
+                {lastResult.missing_criteria.map((code) => (
                   <li key={code}>{missingLabel(code)}</li>
                 ))}
               </ul>
@@ -256,8 +253,8 @@ export function ProjectsPanel({ t, goalId, objectiveId, planItemId, onAccepted }
                     : t("projects.needsWork")}
                 </span>
                 <span className="muted">
-                  {new Date(submission.created_at).toLocaleDateString()} ·{" "}
-                  {t("projects.characters", { n: submission.artifact_chars })}
+                  {new Date(submission.submitted_at).toLocaleDateString()} ·{" "}
+                  {t("projects.characters", { n: submission.artifact_text.trim().length })}
                 </span>
               </li>
             ))}

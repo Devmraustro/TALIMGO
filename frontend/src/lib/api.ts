@@ -337,63 +337,68 @@ export interface ProjectRubricCriterion {
   required: boolean;
 }
 
-export interface ProjectSummary {
+/** The API returns the full project (brief + rubric) in both list and detail responses. */
+export interface Project {
   id: string;
+  path_id: string;
   objective_id: string;
+  objective_title: string;
   title: string;
-  est_minutes: number;
-}
-
-export interface ProjectDetail extends ProjectSummary {
   brief_md: string;
   rubric: ProjectRubricCriterion[];
   min_artifact_chars: number;
   min_reflection_chars: number;
+  est_minutes: number;
+  my_status: string | null;
+  attempts: number;
 }
 
 export interface ProjectSubmission {
   id: string;
   project_id: string;
   objective_id: string;
+  goal_id: string | null;
+  plan_item_id: string | null;
   status: string;
-  rubric_checks: Record<string, boolean>;
-  missing: string[];
-  artifact_chars: number;
-  reflection_chars: number;
-  /** Only present on the POST response. */
-  evidence_recorded?: boolean;
-  plan_item_completed?: boolean;
-  created_at: string;
+  met_criteria: string[];
+  /** Criterion ids still unmet, plus `artifact:minimum_length` / `reflection:minimum_length`. */
+  missing_criteria: string[];
+  artifact_text: string;
+  reflection_text: string;
+  evidence_recorded: boolean;
+  submitted_at: string;
 }
 
 export interface ReviewQueueEntry {
   objective_id: string;
-  title: string;
-  lesson_id: string | null;
-  reason: "fading" | "confirmation_spaced";
-  retrievability: number;
-  next_due_at: string | null;
+  objective_title: string;
+  reason: "recall_below_target" | "spaced_confirmation_due";
+  retrievability: number | null;
+  phase: string;
+  last_evidence_at: string | null;
 }
 
 export interface ReviewQueue {
-  due: ReviewQueueEntry[];
+  items: ReviewQueueEntry[];
   due_count: number;
-  confirmed_count: number;
 }
 
 export interface Flashcard {
-  item: Item;
+  item_id: string;
   objective_id: string;
+  objective_title: string;
+  prompt: string;
+  /** Carried with the card for self-reveal; the pool is restricted server-side to seen items. */
+  answer: string;
+  explanation: string;
   repetitions: number;
-  interval_days: number;
-  due_at: string | null;
-  last_rating: string;
+  due_at: string;
+  is_due: boolean;
 }
 
 export interface FlashcardDeck {
-  due: Flashcard[];
+  cards: Flashcard[];
   due_count: number;
-  total_cards: number;
 }
 
 export interface TutorReply {

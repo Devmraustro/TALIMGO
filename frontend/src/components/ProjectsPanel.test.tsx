@@ -13,14 +13,13 @@ vi.mock("../lib/api", () => ({
 
 const t = translator("en");
 
-const SUMMARY = {
+// Shapes mirror the real API contract (backend/app/schemas.py ProjectOut/ProjectSubmissionOut).
+const PROJECT = {
   id: "py:project:wordcount",
+  path_id: "python-foundations",
   objective_id: "py:project",
+  objective_title: "Capstone project",
   title: "Word-frequency counter",
-  est_minutes: 90,
-};
-const DETAIL = {
-  ...SUMMARY,
   brief_md: "Write and run a program.",
   rubric: [
     { id: "reads_safely", label: "File opened with with and UTF-8", required: true },
@@ -28,40 +27,52 @@ const DETAIL = {
   ],
   min_artifact_chars: 200,
   min_reflection_chars: 40,
+  est_minutes: 90,
+  my_status: null,
+  attempts: 0,
 };
+
+function submission(overrides: Record<string, unknown>) {
+  return {
+    id: "psb_1",
+    project_id: PROJECT.id,
+    objective_id: "py:project",
+    goal_id: "gol_1",
+    plan_item_id: "pli_9",
+    status: "needs_work",
+    met_criteria: [],
+    missing_criteria: [],
+    artifact_text: "",
+    reflection_text: "",
+    evidence_recorded: false,
+    submitted_at: "2026-10-27T00:00:00Z",
+    ...overrides,
+  };
+}
 
 describe("ProjectsPanel", () => {
   it("walks list → submit → needs_work gaps → accepted, reporting evidence", async () => {
     get.mockImplementation((url: string) => {
-      if (url === "/api/projects") return Promise.resolve([SUMMARY]);
-      if (url === `/api/projects/${SUMMARY.id}`) return Promise.resolve(DETAIL);
-      if (url === `/api/projects/${SUMMARY.id}/submissions`) return Promise.resolve([]);
+      if (url === "/api/projects") return Promise.resolve([PROJECT]);
+      if (url === `/api/projects/${PROJECT.id}`) return Promise.resolve(PROJECT);
+      if (url.startsWith("/api/projects/submissions/mine")) return Promise.resolve([]);
       return Promise.reject(new Error(url));
     });
-    post.mockResolvedValueOnce({
-      id: "psb_1",
-      project_id: SUMMARY.id,
-      objective_id: "py:project",
-      status: "needs_work",
-      rubric_checks: {},
-      missing: ["rubric:reads_safely", "artifact:minimum_length"],
-      artifact_chars: 10,
-      reflection_chars: 50,
-      created_at: "2026-10-27T00:00:00Z",
-    });
-    post.mockResolvedValueOnce({
-      id: "psb_2",
-      project_id: SUMMARY.id,
-      objective_id: "py:project",
-      status: "accepted",
-      rubric_checks: { reads_safely: true },
-      missing: [],
-      artifact_chars: 500,
-      reflection_chars: 80,
-      evidence_recorded: true,
-      plan_item_completed: true,
-      created_at: "2026-10-27T01:00:00Z",
-    });
+    post.mockResolvedValueOnce(
+      submission({
+        missing_criteria: ["reads_safely", "artifact:minimum_length"],
+        artifact_text: "short",
+      }),
+    );
+    post.mockResolvedValueOnce(
+      submission({
+        id: "psb_2",
+        status: "accepted",
+        met_criteria: ["reads_safely"],
+        artifact_text: "y".repeat(400),
+        evidence_recorded: true,
+      }),
+    );
 
     const onAccepted = vi.fn();
     render(

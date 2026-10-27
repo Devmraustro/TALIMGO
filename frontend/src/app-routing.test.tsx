@@ -66,7 +66,7 @@ function stubSignedIn() {
         );
       }
       if (url === "/api/practice/review-queue") {
-        return Promise.resolve(jsonResponse({ due: [], due_count: 0, confirmed_count: 0 }));
+        return Promise.resolve(jsonResponse({ items: [], due_count: 0 }));
       }
       if (url === "/api/projects") return Promise.resolve(jsonResponse([]));
       return Promise.resolve(jsonResponse({}, 404));

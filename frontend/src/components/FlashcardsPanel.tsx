@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, type Flashcard, type FlashcardDeck } from "../lib/api";
+import { api, ApiError, type FlashcardDeck } from "../lib/api";
 import type { StringKey } from "../lib/i18n";
 
 interface FlashcardsPanelProps {
   t: (key: StringKey, values?: Record<string, string | number>) => string;
 }
 
-type Rating = "again" | "hard" | "good" | "easy";
+type Rating = "again" | "good";
 
 /**
- * Self-rated recall for items the learner has already met. Rating a card schedules the next
- * review but never records mastery evidence — the copy says so, and the server enforces it
- * (flashcard ratings write no evidence at all; see the review service).
+ * Self-rated recall for items the learner has already met (the server restricts the pool to seen
+ * items). Rating a card schedules the next review but never records mastery evidence — the copy
+ * says so, and the server enforces it (flashcard ratings write no evidence at all; ADR 0009).
  */
 export function FlashcardsPanel({ t }: FlashcardsPanelProps) {
   const [deck, setDeck] = useState<FlashcardDeck | null>(null);
@@ -21,11 +21,11 @@ export function FlashcardsPanel({ t }: FlashcardsPanelProps) {
 
   const load = useCallback(async () => {
     try {
-      const data = await api.get<FlashcardDeck>("/api/practice/flashcards?limit=10");
+      const data = await api.get<FlashcardDeck>("/api/practice/flashcards?limit=20");
       setDeck(data);
       setRevealed(false);
     } catch {
-      setDeck({ due: [], due_count: 0, total_cards: 0 });
+      setDeck({ cards: [], due_count: 0 });
     }
   }, []);
 
@@ -33,19 +33,14 @@ export function FlashcardsPanel({ t }: FlashcardsPanelProps) {
     void load();
   }, [load]);
 
-  const current: Flashcard | null = deck?.due[0] ?? null;
-
-  function reveal() {
-    // The answer itself is fetched by AnswerReveal; the key never travels with the question.
-    setRevealed(true);
-  }
+  const current = deck?.cards.find((card) => card.is_due) ?? null;
 
   async function rate(rating: Rating) {
     if (!current) return;
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/api/practice/flashcards/${current.item.id}/rate`, { rating });
+      await api.post(`/api/practice/flashcards/${current.item_id}/rate`, { rating });
       await load();
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : t("auth.error"));
@@ -65,73 +60,45 @@ export function FlashcardsPanel({ t }: FlashcardsPanelProps) {
       ) : null}
       {!deck ? (
         <p>{t("common.loading")}</p>
-      ) : deck.total_cards === 0 ? (
+      ) : deck.cards.length === 0 ? (
         <p className="muted">{t("flashcards.empty")}</p>
       ) : !current ? (
         <p className="muted">{t("flashcards.done")}</p>
       ) : (
         <>
-          <p className="muted">{t("flashcards.due", { n: deck.due_count })}</p>
+          <p className="muted">
+            {current.objective_title} · {t("flashcards.due", { n: deck.due_count })}
+          </p>
           <p>
-            <strong>{current.item.prompt}</strong>
+            <strong>{current.prompt}</strong>
           </p>
           {!revealed ? (
-            <button type="button" onClick={() => void reveal()} disabled={busy}>
+            <button type="button" onClick={() => setRevealed(true)} disabled={busy}>
               {t("flashcards.showAnswer")}
             </button>
           ) : (
-            <AnswerReveal t={t} itemId={current.item.id} />
+            <>
+              <p aria-live="polite">
+                <strong>{t("diagnostic.correctAnswer")}</strong>: {current.answer} —{" "}
+                {current.explanation}
+              </p>
+              <div className="choice-row" role="group" aria-label={t("flashcards.title")}>
+                {(["again", "good"] as Rating[]).map((rating) => (
+                  <button
+                    key={rating}
+                    type="button"
+                    className="secondary"
+                    onClick={() => void rate(rating)}
+                    disabled={busy}
+                  >
+                    {t(`flashcards.rate.${rating}`)}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
-          {revealed ? (
-            <div className="choice-row" role="group" aria-label={t("flashcards.title")}>
-              {(["again", "hard", "good", "easy"] as Rating[]).map((rating) => (
-                <button
-                  key={rating}
-                  type="button"
-                  className="secondary"
-                  onClick={() => void rate(rating)}
-                  disabled={busy}
-                >
-                  {t(`flashcards.rate.${rating}`)}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </>
       )}
     </section>
-  );
-}
-
-function AnswerReveal({
-  t,
-  itemId,
-}: {
-  t: FlashcardsPanelProps["t"];
-  itemId: string;
-}) {
-  const [answer, setAnswer] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const data = await api.get<{ answer: string; explanation: string }>(
-          `/api/practice/flashcards/${itemId}/answer`,
-        );
-        if (!cancelled) setAnswer(`${data.answer} — ${data.explanation}`);
-      } catch {
-        if (!cancelled) setAnswer(null);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [itemId]);
-  return answer ? (
-    <p aria-live="polite">
-      <strong>{t("diagnostic.correctAnswer")}</strong>: {answer}
-    </p>
-  ) : (
-    <p>{t("common.loading")}</p>
   );
 }

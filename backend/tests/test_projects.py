@@ -54,6 +54,12 @@ def _submit(
 
 def test_project_is_listed_with_rubric_and_no_attempts(client) -> None:
     register(client)
+    all_paths = client.get("/api/projects")
+    assert all_paths.status_code == 200, all_paths.text
+    assert {row["path_id"] for row in all_paths.json()} == {
+        "frontend-foundations",
+        "python-foundations",
+    }, "omitting path_id lists every path's projects (the workspace entry point)"
     response = client.get("/api/projects", params={"path_id": "python-foundations"})
     assert response.status_code == 200, response.text
     (project,) = response.json()

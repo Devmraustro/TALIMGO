@@ -23,7 +23,7 @@ export function ReviewPanel({ t, onReview }: ReviewPanelProps) {
         const data = await api.get<ReviewQueue>("/api/practice/review-queue");
         if (!cancelled) setQueue(data);
       } catch {
-        if (!cancelled) setQueue({ due: [], due_count: 0, confirmed_count: 0 });
+        if (!cancelled) setQueue({ items: [], due_count: 0 });
       }
     })();
     return () => {
@@ -36,21 +36,24 @@ export function ReviewPanel({ t, onReview }: ReviewPanelProps) {
   return (
     <section className="card" aria-labelledby="review-heading">
       <h2 id="review-heading">
-        {t("review.title")} <span className="pill warning">{t("review.dueCount", { n: queue.due_count })}</span>
+        {t("review.title")}{" "}
+        <span className="pill warning">{t("review.dueCount", { n: queue.due_count })}</span>
       </h2>
       <p className="muted">{t("review.intro")}</p>
       <ul className="plan-items">
-        {queue.due.slice(0, 5).map((entry) => (
+        {queue.items.slice(0, 5).map((entry) => (
           <li key={entry.objective_id}>
             <span className="pill warning">{t(`review.reason.${entry.reason}`)}</span>
-            <span>{entry.title}</span>
-            <span className="muted">
-              {t("progress.recall", { n: Math.round(entry.retrievability * 100) })}
-            </span>
+            <span>{entry.objective_title}</span>
+            {entry.retrievability !== null ? (
+              <span className="muted">
+                {t("progress.recall", { n: Math.round(entry.retrievability * 100) })}
+              </span>
+            ) : null}
             <button
               type="button"
               className="secondary"
-              onClick={() => onReview(entry.objective_id, entry.lesson_id)}
+              onClick={() => onReview(entry.objective_id, null)}
             >
               {t("review.start")}
             </button>

@@ -207,12 +207,11 @@ def project_public(
     }
 
 
-def list_projects(db: DbSession, user: User, *, path_id: str, locale: str) -> list[dict]:
-    projects = list(
-        db.scalars(
-            select(Project).where(Project.path_id == path_id).order_by(Project.sequence, Project.id)
-        ).all()
-    )
+def list_projects(db: DbSession, user: User, *, path_id: str | None, locale: str) -> list[dict]:
+    query = select(Project).order_by(Project.path_id, Project.sequence, Project.id)
+    if path_id is not None:
+        query = query.where(Project.path_id == path_id)
+    projects = list(db.scalars(query).all())
     titles = {
         row.id: (row.title_ar if locale == "ar" and row.title_ar.strip() else row.title_en)
         for row in db.scalars(select(Objective)).all()

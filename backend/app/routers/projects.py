@@ -22,7 +22,10 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 @router.get("", response_model=list[ProjectOut])
-def list_projects(path_id: str, user: CurrentUser, db: Db, locale: CurrentLocale) -> list[ProjectOut]:
+def list_projects(
+    user: CurrentUser, db: Db, locale: CurrentLocale, path_id: str | None = None
+) -> list[ProjectOut]:
+    """All authored projects, or one path's when ``path_id`` is given."""
     return [
         ProjectOut(**row) for row in project_service.list_projects(db, user, path_id=path_id, locale=locale)
     ]
