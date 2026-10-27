@@ -1042,7 +1042,7 @@ policy. No migration is needed — no schema change.
 **Not yet verified.** No CI run includes this change yet; the frontend reads the export only as a
 download, so the additive payload needs no UI change.
 
-### 7.26 Completion pass: item kinds, projects, spaced review, second path, frontend wiring (2026-10-27) — IMPLEMENTED, TESTED, CI-verified except one infra step (fixed below)
+### 7.26 Completion pass: item kinds, projects, spaced review, second path, frontend wiring (2026-10-27) — IMPLEMENTED, TESTED, CI-verified (run 40509307885, all jobs green)
 
 Five checkpoints on `arena/8a35da3f-talimgo`, each committed separately:
 
@@ -1085,10 +1085,13 @@ fixed and re-verified live (`23afd7e`).
 CI (PR #5, runs `40505194216`/`40505202579`, observed 2026-10-27): Backend, Frontend,
 Chromium browser journey + axe, licence audit, local-only-AI gate and reverse-proxy jobs all
 **pass**; inside the PostgreSQL job the migration chain, drift check and startup/persistence
-smoke all **pass** — the job failed only at `apt-get install postgresql-client-16`, a
-version-pinned package that vanished from current runner images (infra drift, unrelated to this
-change, last green on `main` 2026-10-25). The step now installs any available client and
-verifies `pg_dump`/`pg_restore`; the re-run result is recorded in the PR.
+smoke all **pass** — the job failed only in its client-tools/backup steps, from runner-image
+drift (ubuntu-latest → Ubuntu 26): first `postgresql-client-16` vanished, then the available
+PostgreSQL 18 client's dump (`SET transaction_timeout`, a PG17+ GUC) was rejected by the
+postgres:16 service on restore. Diagnosed via workflow annotations emitted by the step itself;
+fixed by running the four client tools from the same `postgres:16` image as the service, so
+client/server skew cannot recur. Final state: **run `40509307885` — all seven jobs green**,
+including the full PostgreSQL job and the Chromium journey.
 
 Vercel (observed via API, 2026-10-27): **talimgo-api deployments are READY** for the first time
 (`dpl_CnZUm28r885KbaHno387MRsd26zm`, `dpl_2U3kuErYDRzL15m76zuSn55EJwLy`) — the
