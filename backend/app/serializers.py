@@ -6,8 +6,30 @@ client, and it deliberately has no field for the answer key or the explanation.
 
 from __future__ import annotations
 
+import hashlib
+
 from app.curriculum.registry import localised
 from app.models import Item, Lesson, Objective, PlanItem, PlanWeek
+
+
+def _presentation_order(item: Item, options: list[dict]) -> list[dict]:
+    """The order options are shown in. For ``ordering`` items the authored order IS the answer.
+
+    Serving authored order would hand the learner the key, so ordering options are presented in a
+    deterministic pseudo-random order derived from the item and option ids: stable across
+    requests (a refresh cannot reshuffle mid-answer), independent per item, and — by the rotate
+    guard — never accidentally the authored sequence itself. Every other kind keeps authored
+    order, which is how the bank has always been presented.
+    """
+    if item.kind != "ordering" or len(options) < 2:
+        return options
+    shuffled = sorted(
+        options,
+        key=lambda option: hashlib.sha256(f"{item.id}:{option.get('id', '')}".encode()).hexdigest(),
+    )
+    if [option.get("id") for option in shuffled] == [option.get("id") for option in options]:
+        shuffled = shuffled[1:] + shuffled[:1]
+    return shuffled
 
 
 def item_public(item: Item, locale: str = "en") -> dict:
@@ -21,7 +43,7 @@ def item_public(item: Item, locale: str = "en") -> dict:
                 "id": option.get("id", ""),
                 "text": option.get(locale) or option.get("en") or "",
             }
-            for option in (item.options or [])
+            for option in _presentation_order(item, list(item.options or []))
         ]
         or None,
         "difficulty": item.difficulty,
