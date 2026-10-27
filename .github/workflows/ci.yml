@@ -126,23 +126,24 @@ jobs:
         run: python scripts/postgres_smoke.py
 
       - name: Install PostgreSQL client tools
-        # The rehearsal drives the service's PostgreSQL 16 with the *matching* 16 client: distro
-        # version-pinned packages vanish as runner images move on (ubuntu-latest → Ubuntu 26
-        # dropped postgresql-client-16), so take it from the PGDG apt repository, falling back
-        # to whatever client the image offers. Versions are printed for the record either way.
+        # The rehearsal must drive the postgres:16 service with a *matching* 16 client: a newer
+        # client's dump carries SET transaction_timeout (a PG17+ GUC) and pg_restore then fails
+        # against the 16 server — exactly the breakage seen when ubuntu-latest moved to Ubuntu
+        # 26 (its postgresql-client is 18, and no -16 package exists there). Running the tools
+        # from the same postgres:16 image as the service makes client/server skew impossible,
+        # whatever the runner image ships. /tmp is mounted so the dump path is shared.
         run: |
-          if ! command -v pg_dump >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y postgresql-client-16 || {
-              sudo install -d /usr/share/postgresql-common/pgdg
-              curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-                | sudo gpg --dearmor -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg
-              echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-                | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-              sudo apt-get update
-              sudo apt-get install -y postgresql-client-16
-            } || sudo apt-get install -y postgresql-client
-          fi
+          mkdir -p "$RUNNER_TEMP/pg16bin"
+          for tool in pg_dump pg_restore dropdb createdb; do
+            cat > "$RUNNER_TEMP/pg16bin/$tool" <<'EOF'
+          #!/bin/sh
+          tool="$(basename "$0")"
+          exec docker run --rm --network host -e PGPASSWORD -e PGCONNECT_TIMEOUT -v /tmp:/tmp postgres:16 "$tool" "$@"
+          EOF
+            chmod +x "$RUNNER_TEMP/pg16bin/$tool"
+          done
+          echo "$RUNNER_TEMP/pg16bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/pg16bin:$PATH"
           pg_dump --version
           pg_restore --version
 
