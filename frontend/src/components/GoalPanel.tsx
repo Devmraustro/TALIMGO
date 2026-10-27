@@ -7,13 +7,33 @@ interface GoalPanelProps {
   onGoal: (goal: Goal) => void;
 }
 
+const DRAFT_KEY = "talimgo.goalDraft.v1";
+
+interface GoalDraft {
+  pathId?: string;
+  statement?: string;
+  motivation?: string;
+  minutes?: number;
+  targetDate?: string;
+}
+
+function loadDraft(): GoalDraft {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    return raw ? (JSON.parse(raw) as GoalDraft) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function GoalPanel({ t, onGoal }: GoalPanelProps) {
+  const [draft] = useState<GoalDraft>(() => loadDraft());
   const [paths, setPaths] = useState<PathSummary[]>([]);
-  const [pathId, setPathId] = useState("");
-  const [statement, setStatement] = useState("");
-  const [motivation, setMotivation] = useState("");
-  const [minutes, setMinutes] = useState(240);
-  const [targetDate, setTargetDate] = useState("");
+  const [pathId, setPathId] = useState(draft.pathId ?? "");
+  const [statement, setStatement] = useState(draft.statement ?? "");
+  const [motivation, setMotivation] = useState(draft.motivation ?? "");
+  const [minutes, setMinutes] = useState(draft.minutes ?? 240);
+  const [targetDate, setTargetDate] = useState(draft.targetDate ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -22,12 +42,29 @@ export function GoalPanel({ t, onGoal }: GoalPanelProps) {
       try {
         const list = await api.get<PathSummary[]>("/api/curriculum/paths");
         setPaths(list);
-        if (list.length > 0) setPathId(list[0].id);
+        // The list is id-sorted; always default to Python (the reviewed launch path) unless the
+        // learner has a saved draft choice.
+        setPathId((current) => {
+          if (current && list.some((path) => path.id === current)) return current;
+          return list.find((path) => path.id === "python-foundations")?.id ?? list[0]?.id ?? "";
+        });
       } catch {
         setPaths([]);
       }
     })();
   }, []);
+
+  // A long statement must survive an accidental reload: the draft never leaves the device.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({ pathId, statement, motivation, minutes, targetDate } satisfies GoalDraft),
+      );
+    } catch {
+      // Storage can be unavailable (private mode); the form still works without persistence.
+    }
+  }, [pathId, statement, motivation, minutes, targetDate]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -41,6 +78,11 @@ export function GoalPanel({ t, onGoal }: GoalPanelProps) {
         weekly_minutes: minutes,
         target_date: targetDate || null,
       });
+      try {
+        window.localStorage.removeItem(DRAFT_KEY);
+      } catch {
+        // The goal is created; a stale draft slot is harmless.
+      }
       onGoal(goal);
     } catch (cause) {
       setError(cause instanceof ApiError ? cause.message : t("auth.error"));

@@ -16,6 +16,7 @@ from app.models import (
     DiagnosticAttempt,
     DiagnosticResponse,
     Evidence,
+    FlashcardState,
     Goal,
     LoginAttempt,
     MasteryEstimate,
@@ -25,6 +26,7 @@ from app.models import (
     PracticeResponse,
     PracticeSession,
     Profile,
+    ProjectSubmission,
     Session,
     TutorMessage,
     TutorThread,
@@ -249,6 +251,14 @@ def export_account(db: DbSession, user: User) -> dict:
         else []
     )
     ai_usage = list(db.scalars(select(AiUsage).where(AiUsage.user_id == user.id)))
+    project_submissions = list(
+        db.scalars(
+            select(ProjectSubmission)
+            .where(ProjectSubmission.user_id == user.id)
+            .order_by(ProjectSubmission.submitted_at)
+        )
+    )
+    flashcard_states = list(db.scalars(select(FlashcardState).where(FlashcardState.user_id == user.id)))
 
     return {
         "account": {
@@ -385,6 +395,35 @@ def export_account(db: DbSession, user: User) -> dict:
             for row in practice_responses
         ],
         "ai_usage": [{"day": row.day, "count": row.count} for row in ai_usage],
+        "project_submissions": [
+            {
+                "id": row.id,
+                "project_id": row.project_id,
+                "objective_id": row.objective_id,
+                "goal_id": row.goal_id,
+                "plan_item_id": row.plan_item_id,
+                "status": row.status,
+                "artifact_text": row.artifact_text,
+                "reflection_text": row.reflection_text,
+                "rubric_checks": row.rubric_checks,
+                "met_criteria": row.met_criteria,
+                "missing_criteria": row.missing_criteria,
+                "evidence_recorded": row.evidence_recorded,
+                "submitted_at": row.submitted_at.isoformat(),
+            }
+            for row in project_submissions
+        ],
+        "flashcard_states": [
+            {
+                "item_id": row.item_id,
+                "objective_id": row.objective_id,
+                "repetitions": row.repetitions,
+                "interval_days": row.interval_days,
+                "due_at": row.due_at.isoformat(),
+                "last_rating": row.last_rating,
+            }
+            for row in flashcard_states
+        ],
         "tutor_messages": [
             {
                 "thread_id": message.thread_id,
@@ -452,6 +491,8 @@ def delete_account(db: DbSession, user: User, *, password: str) -> None:
         db.query(PlanWeek).filter(PlanWeek.plan_id.in_(plan_ids)).delete(synchronize_session=False)
         db.query(Plan).filter(Plan.id.in_(plan_ids)).delete(synchronize_session=False)
 
+    db.query(ProjectSubmission).filter(ProjectSubmission.user_id == user_id).delete(synchronize_session=False)
+    db.query(FlashcardState).filter(FlashcardState.user_id == user_id).delete(synchronize_session=False)
     db.query(Goal).filter(Goal.user_id == user_id).delete(synchronize_session=False)
     db.query(AiUsage).filter(AiUsage.user_id == user_id).delete(synchronize_session=False)
     db.query(Profile).filter(Profile.user_id == user_id).delete(synchronize_session=False)

@@ -176,10 +176,18 @@ export interface ItemOption {
   text: string;
 }
 
+export type ItemKind =
+  | "mcq_single"
+  | "mcq_multi"
+  | "short_answer"
+  | "numeric"
+  | "ordering"
+  | "true_false";
+
 export interface Item {
   id: string;
   objective_id: string;
-  kind: "mcq_single" | "short_answer";
+  kind: ItemKind;
   prompt: string;
   options: ItemOption[] | null;
   difficulty: number;
@@ -314,12 +322,83 @@ export interface PracticeSession {
   session_id: string;
   objective_id: string;
   status: "in_progress" | "completed" | "abandoned";
+  mode: "practice" | "review";
   item: Item | null;
   answered: number;
   /** The completion target frozen when the session was created; `total` is its display alias. */
   target_items: number;
   total: number;
   feedback: AnswerFeedback | null;
+}
+
+export interface ProjectRubricCriterion {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+/** The API returns the full project (brief + rubric) in both list and detail responses. */
+export interface Project {
+  id: string;
+  path_id: string;
+  objective_id: string;
+  objective_title: string;
+  title: string;
+  brief_md: string;
+  rubric: ProjectRubricCriterion[];
+  min_artifact_chars: number;
+  min_reflection_chars: number;
+  est_minutes: number;
+  my_status: string | null;
+  attempts: number;
+}
+
+export interface ProjectSubmission {
+  id: string;
+  project_id: string;
+  objective_id: string;
+  goal_id: string | null;
+  plan_item_id: string | null;
+  status: string;
+  met_criteria: string[];
+  /** Criterion ids still unmet, plus `artifact:minimum_length` / `reflection:minimum_length`. */
+  missing_criteria: string[];
+  artifact_text: string;
+  reflection_text: string;
+  evidence_recorded: boolean;
+  submitted_at: string;
+}
+
+export interface ReviewQueueEntry {
+  objective_id: string;
+  objective_title: string;
+  reason: "recall_below_target" | "spaced_confirmation_due";
+  retrievability: number | null;
+  phase: string;
+  last_evidence_at: string | null;
+}
+
+export interface ReviewQueue {
+  items: ReviewQueueEntry[];
+  due_count: number;
+}
+
+export interface Flashcard {
+  item_id: string;
+  objective_id: string;
+  objective_title: string;
+  prompt: string;
+  /** Carried with the card for self-reveal; the pool is restricted server-side to seen items. */
+  answer: string;
+  explanation: string;
+  repetitions: number;
+  due_at: string;
+  is_due: boolean;
+}
+
+export interface FlashcardDeck {
+  cards: Flashcard[];
+  due_count: number;
 }
 
 export interface TutorReply {

@@ -99,6 +99,14 @@ export function DiagnosticPanel({ t, goalId, onCompleted }: DiagnosticPanelProps
           disabled={busy}
           submitLabel={t("diagnostic.submit")}
           shortAnswerLabel={t("diagnostic.shortAnswer")}
+          numericLabel={t("item.numericLabel")}
+          chooseAllLabel={t("item.chooseAll")}
+          trueLabel={t("item.true")}
+          falseLabel={t("item.false")}
+          orderingTitle={t("item.orderingTitle")}
+          orderingHint={t("item.orderingHint")}
+          orderingChosenLabel={t("item.orderingChosen")}
+          orderingResetLabel={t("item.orderingReset")}
           onSubmit={(response) => void answer(response)}
         />
       ) : (

@@ -272,6 +272,13 @@ def _canonical_answer(item: Item, outcome: GradeResult, locale: str = DEFAULT_LO
             if option.get("id") == option_id:
                 return _option_label(option, locale) or str(option_id or "")
         return str(option_id or "")
+    if item.kind in {"mcq_multi", "ordering"}:
+        key = item.answer_key or {}
+        labels = {option.get("id"): _option_label(option, locale) for option in item.options or []}
+        joiner = " → " if item.kind == "ordering" else ", "
+        return joiner.join(labels.get(option_id, str(option_id)) for option_id in key.get("option_ids") or [])
+    if item.kind == "true_false":
+        return translate("answer.true" if (item.answer_key or {}).get("value") else "answer.false", locale)
     if outcome.canonical_answer:
         return outcome.canonical_answer
     accepted = (item.answer_key or {}).get("accepted") or []
@@ -427,6 +434,7 @@ def start_practice(
     size: int = 5,
     goal_id: str | None = None,
     plan_item_id: str | None = None,
+    mode: str = "practice",
     now: datetime | None = None,
 ) -> PracticeSession:
     objective = db.get(Objective, objective_id)
@@ -449,6 +457,7 @@ def start_practice(
         goal_id=resolved_goal_id,
         plan_item_id=plan_item_id,
         objective_id=objective_id,
+        mode=mode if mode in {"practice", "review"} else "practice",
         status="in_progress",
         target_items=target,
         item_ids=[row.id for row in pool[:target]],

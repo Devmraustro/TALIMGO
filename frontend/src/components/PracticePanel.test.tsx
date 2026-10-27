@@ -85,4 +85,31 @@ describe("PracticePanel session lifecycle", () => {
     await waitFor(() => expect(onFinished).toHaveBeenCalled());
     expect(post.mock.calls[1][0]).toBe("/api/practice/sessions/prs_1/complete");
   });
+
+  it("threads the plan item, goal and mode into the session it creates", async () => {
+    // Regression: the UI used to drop plan_item_id, so finishing a session from Today/Dashboard
+    // never ticked the roadmap step off even though the API supported it.
+    post.mockReset();
+    post.mockResolvedValueOnce(session({ answered: 0, item: null }));
+    render(
+      <PracticePanel
+        t={t}
+        objectiveId="py:values"
+        lessonId={null}
+        planItemId="pli_42"
+        goalId="gol_7"
+        mode="review"
+        aiAvailable={false}
+        onFinished={() => {}}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /start practising/i }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0][1]).toMatchObject({
+      objective_id: "py:values",
+      plan_item_id: "pli_42",
+      goal_id: "gol_7",
+      mode: "review",
+    });
+  });
 });

@@ -10,14 +10,19 @@ from app.learning.mastery import RETRIEVABILITY_TARGET, retrievability
 from app.models import Evidence, Objective, PracticeResponse, PracticeSession
 from app.schemas import (
     AnswerFeedback,
+    FlashcardRateIn,
+    FlashcardsOut,
+    FlashcardStateOut,
     ItemPublic,
     MasteryOut,
     PracticeAnswerIn,
     PracticeSessionOut,
     PracticeStartIn,
+    ReviewQueueOut,
 )
 from app.serializers import item_public
 from app.services import assessment
+from app.services import review as review_service
 from app.services.progress import load_estimates, objective_title, recompute_mastery
 from app.utils import utcnow
 
@@ -45,6 +50,7 @@ def _state(
     return PracticeSessionOut(
         session_id=session.id,
         objective_id=session.objective_id,
+        mode=session.mode or "practice",
         status=session.status,
         item=ItemPublic(**item_public(item, locale)) if item is not None else None,
         answered=answered,
@@ -66,6 +72,7 @@ def start_session(
             size=payload.size,
             goal_id=payload.goal_id,
             plan_item_id=payload.plan_item_id,
+            mode=payload.mode,
         )
     except assessment.AssessmentConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -142,6 +149,38 @@ def abandon_session(session_id: str, user: CurrentUser, db: Db, locale: CurrentL
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.commit()
     return _state(db, session, locale=locale)
+
+
+@router.get("/review-queue", response_model=ReviewQueueOut)
+def review_queue(user: CurrentUser, db: Db, locale: CurrentLocale) -> ReviewQueueOut:
+    """Spaced review due now, derived from the learner's mastery estimates (ADR 0009)."""
+    return ReviewQueueOut(**review_service.build_review_queue(db, user, locale=locale))
+
+
+@router.get("/flashcards", response_model=FlashcardsOut)
+def flashcards(
+    user: CurrentUser, db: Db, locale: CurrentLocale, objective_id: str | None = None, limit: int = 50
+) -> FlashcardsOut:
+    """Study cards built only from items the learner has already answered (ADR 0009)."""
+    return FlashcardsOut(
+        **review_service.flashcards_for(db, user, locale=locale, objective_id=objective_id, limit=limit)
+    )
+
+
+@router.post("/flashcards/{item_id}/rate", response_model=FlashcardStateOut)
+def rate_flashcard(item_id: str, payload: FlashcardRateIn, user: CurrentUser, db: Db) -> FlashcardStateOut:
+    try:
+        state = review_service.rate_flashcard(db, user, item_id=item_id, rating=payload.rating)
+    except assessment.AssessmentError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    db.commit()
+    return FlashcardStateOut(
+        item_id=state.item_id,
+        repetitions=state.repetitions,
+        interval_days=state.interval_days,
+        due_at=state.due_at,
+        last_rating=state.last_rating,
+    )
 
 
 @router.get("/progress/mastery", response_model=list[MasteryOut])

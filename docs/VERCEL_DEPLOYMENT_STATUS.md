@@ -1,6 +1,6 @@
 ﻿# Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-25**. Earlier public-host observations are preserved below with their original dates.
+Status date: **2026-10-27**. Earlier public-host observations are preserved below with their original dates.
 This file records what was actually observed about the Vercel deployment from outside, what it can and
 cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
@@ -129,6 +129,15 @@ were not cryptographically verified by GitHub.
 Verified Commits requirement. The previous deployment remains at commit `fa421ab` (stale).
 
 ---
+
+
+## 2026-10-27 re-check (Vercel API) — talimgo-api build failure root-caused and fixed in-repo
+
+| Observation | Evidence |
+| --- | --- |
+| `talimgo-api` production deployments failed in the **install step**, never reaching Python | Deployment `dpl_3TCjz4g1JGrVxAEfqDa421zHFbWz` build events: it executed the repository-root `vercel.json` command `npm ci --prefix frontend`, which fails with EUSAGE because the project's root directory is `backend/` and no `frontend/package-lock.json` exists there. Project settings themselves were correct (`framework: fastapi`, `rootDirectory: backend`, no command overrides) |
+| Fix shipped in-repo | `backend/vercel.json` (`{"framework": "fastapi"}`) so the backend project stops inheriting the frontend build. Guarded by `backend/tests/test_deploy_artifacts.py::test_backend_vercel_config_never_runs_the_frontend_build` and a matching frontend test |
+| Still **not** a working API after the fix | A building deployment additionally needs owner-provisioned PostgreSQL + `DATABASE_URL`/secrets and a migrated schema (`alembic upgrade head`) — see the Z Code handoff prompt. Serverless also cannot host the local model runtime; AI stays disabled/fail-closed there by design |
 
 ## What this file does not claim
 

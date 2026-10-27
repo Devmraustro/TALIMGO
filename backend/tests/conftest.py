@@ -167,24 +167,45 @@ def answer_diagnostic_until_done(client: TestClient, goal_id: str, *, correct: b
     return {"attempt_id": attempt_id, "state": state}
 
 
+def _authored_item(item_id: str) -> dict:
+    """The authored item (with its key) from whichever path defines it."""
+    from app.curriculum.registry import PATHS, item_index
+
+    for path_id in PATHS:
+        index = item_index(path_id)
+        if item_id in index:
+            return index[item_id]
+    raise KeyError(f"no authored item {item_id!r}")
+
+
 def _correct_response(item: dict) -> dict:
     """Answer correctly using the authored key (tests may read keys; clients never do)."""
-    from app.curriculum.registry import item_index
-
-    key = item_index("python-foundations")[item["id"]]["answer_key"]
+    key = _authored_item(item["id"])["answer_key"]
     if item["kind"] == "mcq_single":
         return {"option_id": key["option_id"]}
+    if item["kind"] in {"mcq_multi", "ordering"}:
+        return {"option_ids": list(key["option_ids"])}
+    if item["kind"] == "numeric":
+        return {"text": str(key["value"])}
+    if item["kind"] == "true_false":
+        return {"value": bool(key["value"])}
     return {"text": key["accepted"][0]}
 
 
 def _wrong_response(item: dict) -> dict:
+    key = _authored_item(item["id"])["answer_key"]
     if item["kind"] == "mcq_single":
-        from app.curriculum.registry import item_index
-
-        key = item_index("python-foundations")[item["id"]]["answer_key"]
         option_ids = [option["id"] for option in item["options"] or []]
         wrong = [candidate for candidate in option_ids if candidate != key["option_id"]]
         return {"option_id": wrong[0] if wrong else "z"}
+    if item["kind"] == "mcq_multi":
+        return {"option_ids": []}
+    if item["kind"] == "ordering":
+        return {"option_ids": list(reversed(key["option_ids"]))}
+    if item["kind"] == "numeric":
+        return {"text": str(float(key["value"]) + 1)}
+    if item["kind"] == "true_false":
+        return {"value": not bool(key["value"])}
     return {"text": "definitely-not-the-answer"}
 
 

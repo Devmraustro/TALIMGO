@@ -979,7 +979,10 @@ across clients behind one NAT; the reverse proxy's stricter `/api/auth/*` `limit
 cheaper first line. The same-instant overshoot noted when this section was first written was fixed
 separately — see §7.24.
 
-### 7.24 Registration decision serialisation per IP (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+### 7.24 Registration decision serialisation per IP (2026-10-24) — IMPLEMENTED, TESTED, CI-verified
+
+> CI status corrected 2026-10-27: GitHub Actions on `main` includes this change and the last five
+> runs observed that day were green (see §7.26). The original "not yet CI-verified" caveat was stale.
 
 **The gap.** §7.23's original check-then-insert admitted a same-instant race: every concurrently
 in-flight request from one address read the same below-cap count and each recorded an attempt, so
@@ -1009,7 +1012,10 @@ allowance, and `Retry-After` derivation is unchanged. Maintenance prunes guard r
 **Not yet verified.** No CI run includes `b7e4f1a93c28` yet; the PostgreSQL job must re-run (the
 guard UPDATE is dialect-neutral SQL, but that is an argument, not evidence).
 
-### 7.25 Export and deletion completeness (2026-10-24) — IMPLEMENTED, TESTED locally, not yet CI-verified
+### 7.25 Export and deletion completeness (2026-10-24) — IMPLEMENTED, TESTED, CI-verified
+
+> CI status corrected 2026-10-27, same observation as §7.24. §7.26 extended the export/deletion
+> coverage again for project submissions and flashcard state.
 
 **The gap.** A review of `export_account`/`delete_account` found two data-rights defects. The
 export endpoint's notice promises "everything TALIMGO stores about your account", but the payload
@@ -1035,3 +1041,61 @@ policy. No migration is needed — no schema change.
 
 **Not yet verified.** No CI run includes this change yet; the frontend reads the export only as a
 download, so the additive payload needs no UI change.
+
+### 7.26 Completion pass: item kinds, projects, spaced review, second path, frontend wiring (2026-10-27) — IMPLEMENTED, TESTED, CI-verified (run 40509307885, all jobs green)
+
+Five checkpoints on `arena/8a35da3f-talimgo`, each committed separately:
+
+1. **Four new deterministic item kinds** (`74946dd`): `mcq_multi` (all-and-only set equality),
+   `numeric` (tolerance; Arabic-Indic digits, U+066B decimal separator, grouping separators),
+   `ordering` (exact sequence; served shuffled so the key order never leaks), `true_false`.
+   Canonical feedback answers for every kind; `verify_expr` extended to numeric keys. Pure
+   `app/learning/review.py` added (review-queue ordering + flashcard ladder).
+2. **Projects + review backend** (`d56bbf4`, ADR 0008/0009): `projects`/`project_submissions`/
+   `flashcard_states` tables (migration `d5b8e0f13a72`), deterministic rubric acceptance,
+   one-shot `project` evidence, plan-item completion, review queue + review-mode sessions,
+   seen-only flashcards, export/deletion coverage, admin audit-log endpoint (closes threat-model
+   T17's TODO).
+3. **Second launch path** (`68c79b6`): `frontend-foundations` — 8 objectives, bilingual lessons,
+   24 items across all six kinds, capstone project. **PROPOSED content, not yet subject-reviewed**
+   (same standing as the Python path's original content). Python path gained 8 new-kind items
+   (44 total; diagnostic pool unchanged). Planner: build objectives are never downgraded to a
+   confirmation quiz.
+4. **Frontend** (`1d05a9d`): kind-aware `ItemForm`; **bug fix** — `plan_item_id`/`goal_id`/`mode`
+   now thread through to session creation, so the roadmap step actually completes from the real
+   UI (previously only API clients ticked steps); Projects workspace, review card, flashcards;
+   hash routing for seven views; Help view (honest pre-MVP copy); goal draft persistence;
+   default goal path pinned to Python.
+5. **Deployment + docs** (this section): `backend/vercel.json` stops the `talimgo-api` project
+   inheriting the root frontend build commands (its production builds died in npm); ADRs
+   0008/0009; stale CI-status claims in §7.24/§7.25 corrected; Vercel status doc updated.
+
+**Deliberately not done here** (owner/infrastructure decisions, specced in the Z Code handoff):
+billing, email verification/password reset (need an email provider decision), analytics events,
+real hosting/PostgreSQL provisioning, real local-model runtime evidence, subject-matter and
+human WCAG review, and every Master §19 `DEC-*` item. FSRS was evaluated and deferred (ADR 0009).
+
+**Evidence.** Local: full backend suite **446 passed / 4 skipped**, ruff/format/bandit clean,
+`alembic check` no drift, `check_no_external_ai.py` clean (92 files); frontend typecheck clean,
+**75 passed / 1 skipped**, build/bundle/licences/`npm audit` clean. A live end-to-end smoke
+through the Vite dev proxy then caught a real contract drift the mocks had hidden
+(`GET /api/projects` 422 without `path_id`, wrong submissions route, diverged field names) —
+fixed and re-verified live (`23afd7e`).
+
+CI (PR #5, runs `40505194216`/`40505202579`, observed 2026-10-27): Backend, Frontend,
+Chromium browser journey + axe, licence audit, local-only-AI gate and reverse-proxy jobs all
+**pass**; inside the PostgreSQL job the migration chain, drift check and startup/persistence
+smoke all **pass** — the job failed only in its client-tools/backup steps, from runner-image
+drift (ubuntu-latest → Ubuntu 26): first `postgresql-client-16` vanished, then the available
+PostgreSQL 18 client's dump (`SET transaction_timeout`, a PG17+ GUC) was rejected by the
+postgres:16 service on restore. Diagnosed via workflow annotations emitted by the step itself;
+fixed by running the four client tools from the same `postgres:16` image as the service, so
+client/server skew cannot recur. Final state: **run `40509307885` — all seven jobs green**,
+including the full PostgreSQL job and the Chromium journey.
+
+Vercel (observed via API, 2026-10-27): **talimgo-api deployments are READY** for the first time
+(`dpl_CnZUm28r885KbaHno387MRsd26zm`, `dpl_2U3kuErYDRzL15m76zuSn55EJwLy`) — the
+`backend/vercel.json` fix works; runtime still needs owner-provisioned PostgreSQL/secrets.
+talimgo-preview deployments were **CANCELED by the project's Verified-Commits protection**
+("commit signature couldn't be verified") because this work's commits are unsigned; the owner
+(or Z Code on the owner's machine) resolves this by merging/pushing with the signing key.
