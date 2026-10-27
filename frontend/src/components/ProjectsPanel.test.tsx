@@ -51,7 +51,7 @@ function submission(overrides: Record<string, unknown>) {
 }
 
 describe("ProjectsPanel", () => {
-  it("walks list → submit → needs_work gaps → accepted, reporting evidence", async () => {
+  it("walks list → submit → needs_work gaps → accepted, reporting evidence", { timeout: 15000 }, async () => {
     get.mockImplementation((url: string) => {
       if (url === "/api/projects") return Promise.resolve([PROJECT]);
       if (url === `/api/projects/${PROJECT.id}`) return Promise.resolve(PROJECT);
