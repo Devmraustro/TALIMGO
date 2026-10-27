@@ -13,14 +13,27 @@ import { direction, translator, type Locale, type StringKey } from "./lib/i18n";
 import { AuthPanel } from "./components/AuthPanel";
 import { DashboardPanel } from "./components/DashboardPanel";
 import { DiagnosticPanel } from "./components/DiagnosticPanel";
+import { FlashcardsPanel } from "./components/FlashcardsPanel";
 import { GoalPanel } from "./components/GoalPanel";
+import { HelpPanel } from "./components/HelpPanel";
 import { PracticePanel } from "./components/PracticePanel";
 import { ProgressPanel } from "./components/ProgressPanel";
+import { ProjectsPanel } from "./components/ProjectsPanel";
+import { ReviewPanel } from "./components/ReviewPanel";
 import { RoadmapPanel } from "./components/RoadmapPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { TodayPanel } from "./components/TodayPanel";
 
-type View = "dashboard" | "plan" | "practice" | "progress" | "settings";
+type View = "dashboard" | "plan" | "practice" | "projects" | "progress" | "settings" | "help";
+
+const VIEWS: View[] = ["dashboard", "plan", "practice", "projects", "progress", "settings", "help"];
+
+/** Hash routes (`#/projects`) make every destination deep-linkable and back-button friendly
+ * without a router dependency or any server rewrite rule. */
+function viewFromHash(): View {
+  const candidate = window.location.hash.replace(/^#\/?/, "") as View;
+  return VIEWS.includes(candidate) ? candidate : "dashboard";
+}
 
 interface AiStatus {
   ai_enabled: boolean;
@@ -39,11 +52,18 @@ export function App() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
-  const [practiceTarget, setPracticeTarget] = useState<{ objectiveId: string; lessonId: string | null } | null>(
-    null,
-  );
+  const [practiceTarget, setPracticeTarget] = useState<{
+    objectiveId: string;
+    lessonId: string | null;
+    planItemId?: string | null;
+    mode?: "practice" | "review";
+  } | null>(null);
+  const [projectTarget, setProjectTarget] = useState<{
+    objectiveId: string;
+    planItemId: string | null;
+  } | null>(null);
   const [goal, setGoal] = useState<Goal | null>(null);
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(() => viewFromHash());
   const [aiStatus, setAiStatus] = useState<AiStatus>({ ai_enabled: false });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -119,6 +139,17 @@ export function App() {
     })();
   }, [applyMe, refreshDashboard]);
 
+  const navigate = useCallback((target: View) => {
+    setView(target);
+    if (viewFromHash() !== target) window.location.hash = `#/${target}`;
+  }, []);
+
+  useEffect(() => {
+    const onHashChange = () => setView(viewFromHash());
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+
   // Session expiry mid-use: the API answers 401 to a request the learner made while signed in. Return
   // to the sign-in screen with an explanation instead of leaving a screen whose actions all fail. The
   // listener only exists while a learner is signed in, so a 401 from the sign-in form (wrong password)
@@ -132,6 +163,7 @@ export function App() {
       setGoal(null);
       setSchedule(null);
       setPracticeTarget(null);
+      setProjectTarget(null);
       setView("dashboard");
       setError(t("auth.sessionExpired"));
     });
@@ -143,17 +175,42 @@ export function App() {
     setDashboard(null);
     setPlan(null);
     setGoal(null);
-    setView("dashboard");
+    setPracticeTarget(null);
+    setProjectTarget(null);
+    navigate("dashboard");
+  }
+
+  function startOnObjective(
+    kind: string,
+    objectiveId: string,
+    lessonId: string | null,
+    planItemId: string | null,
+  ) {
+    // A build step is done in the project workspace, never as a quiz; everything else opens
+    // practice, carrying the plan item so finishing the session ticks the roadmap step off.
+    if (kind === "build") {
+      setProjectTarget({ objectiveId, planItemId });
+      navigate("projects");
+      return;
+    }
+    setPracticeTarget({
+      objectiveId,
+      lessonId,
+      planItemId,
+      mode: kind === "review" ? "review" : "practice",
+    });
+    navigate("practice");
   }
 
   function handlePrimaryAction() {
     const action = dashboard?.next_action;
-    if (!action) return;
-    // The diagnostic runs inline on the dashboard; everything else is practice-shaped.
-    setPracticeTarget(
-      action.objective_id ? { objectiveId: action.objective_id, lessonId: action.lesson_id } : null,
-    );
-    setView(action.kind === "diagnostic" ? "dashboard" : "practice");
+    if (!action?.objective_id) return;
+    // The diagnostic runs inline on the dashboard; everything else routes by kind.
+    if (action.kind === "diagnostic") {
+      navigate("dashboard");
+      return;
+    }
+    startOnObjective(action.kind, action.objective_id, action.lesson_id, action.plan_item_id);
   }
 
   if (booting) {
@@ -198,6 +255,21 @@ export function App() {
   const needsGoal = !goal;
   const needsDiagnostic = Boolean(goal) && dashboard?.next_action.kind === "diagnostic";
 
+  // Opening the practice view directly (nav, bookmark) falls back to the recommended action,
+  // including its plan item, so a finished session still completes the roadmap step.
+  const activePractice =
+    practiceTarget ??
+    (dashboard?.next_action.objective_id
+      ? {
+          objectiveId: dashboard.next_action.objective_id,
+          lessonId: dashboard.next_action.lesson_id,
+          planItemId: dashboard.next_action.plan_item_id,
+          mode: (dashboard.next_action.kind === "review" ? "review" : "practice") as
+            | "practice"
+            | "review",
+        }
+      : null);
+
   return (
     <main className="app-shell" id="main">
       <header className="site">
@@ -205,13 +277,13 @@ export function App() {
           TALIMGO<span>{t("app.tagline")}</span>
         </div>
         <nav aria-label={t("nav.sections")}>
-          {(["dashboard", "plan", "practice", "progress", "settings"] as View[]).map((target) => (
+          {VIEWS.map((target) => (
             <button
               key={target}
               type="button"
               className={view === target ? "button" : "ghost"}
               aria-current={view === target ? "page" : undefined}
-              onClick={() => setView(target)}
+              onClick={() => navigate(target)}
             >
               {target === "dashboard"
                 ? t("nav.dashboard")
@@ -219,9 +291,13 @@ export function App() {
                   ? t("nav.plan")
                   : target === "practice"
                     ? t("nav.tutor")
-                    : target === "progress"
-                      ? t("nav.progress")
-                      : t("nav.settings")}
+                    : target === "projects"
+                      ? t("nav.projects")
+                      : target === "progress"
+                        ? t("nav.progress")
+                        : target === "settings"
+                          ? t("nav.settings")
+                          : t("nav.help")}
             </button>
           ))}
           <button type="button" className="ghost" onClick={() => void signOut()}>
@@ -242,7 +318,7 @@ export function App() {
           onGoal={(created) => {
             setGoal(created);
             void refreshDashboard();
-            setView("dashboard");
+            navigate("dashboard");
           }}
         />
       ) : null}
@@ -273,8 +349,16 @@ export function App() {
               schedule={schedule}
               busy={busy}
               onStart={(item) => {
-                setPracticeTarget({ objectiveId: item.objective_id, lessonId: item.lesson_id });
-                setView("practice");
+                startOnObjective(item.kind, item.objective_id, item.lesson_id, item.id);
+              }}
+            />
+          ) : null}
+          {!needsDiagnostic ? (
+            <ReviewPanel
+              t={t}
+              onReview={(objectiveId, lessonId) => {
+                setPracticeTarget({ objectiveId, lessonId, mode: "review" });
+                navigate("practice");
               }}
             />
           ) : null}
@@ -297,12 +381,31 @@ export function App() {
       ) : null}
 
       {view === "practice" && !needsGoal ? (
-        <PracticePanel
+        <>
+          <PracticePanel
+            t={t}
+            objectiveId={activePractice?.objectiveId ?? null}
+            lessonId={activePractice?.lessonId ?? null}
+            planItemId={activePractice?.planItemId ?? null}
+            goalId={goal?.id ?? null}
+            mode={activePractice?.mode ?? "practice"}
+            aiAvailable={Boolean(aiStatus.ai_enabled && aiStatus.runtime_reachable !== false)}
+            onFinished={() => {
+              setBusy(true);
+              void refreshDashboard().finally(() => setBusy(false));
+            }}
+          />
+          <FlashcardsPanel t={t} />
+        </>
+      ) : null}
+
+      {view === "projects" && !needsGoal ? (
+        <ProjectsPanel
           t={t}
-          objectiveId={practiceTarget?.objectiveId ?? dashboard?.next_action.objective_id ?? null}
-          lessonId={practiceTarget?.lessonId ?? dashboard?.next_action.lesson_id ?? null}
-          aiAvailable={Boolean(aiStatus.ai_enabled && aiStatus.runtime_reachable !== false)}
-          onFinished={() => {
+          goalId={goal?.id ?? null}
+          objectiveId={projectTarget?.objectiveId ?? null}
+          planItemId={projectTarget?.planItemId ?? null}
+          onAccepted={() => {
             setBusy(true);
             void refreshDashboard().finally(() => setBusy(false));
           }}
@@ -310,6 +413,8 @@ export function App() {
       ) : null}
 
       {view === "progress" && !needsGoal ? <ProgressPanel t={t} /> : null}
+
+      {view === "help" ? <HelpPanel t={t} /> : null}
 
       {view === "settings" ? (
         <SettingsPanel

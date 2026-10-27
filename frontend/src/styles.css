@@ -425,3 +425,16 @@ header.site nav button {
     padding: var(--space-4);
   }
 }
+
+/* Ordering/flashcard option rows: wrap on narrow screens, generous touch targets. */
+.choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-2);
+}
+
+.choice-row button[aria-pressed="true"] {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+}

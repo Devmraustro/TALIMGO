@@ -176,10 +176,18 @@ export interface ItemOption {
   text: string;
 }
 
+export type ItemKind =
+  | "mcq_single"
+  | "mcq_multi"
+  | "short_answer"
+  | "numeric"
+  | "ordering"
+  | "true_false";
+
 export interface Item {
   id: string;
   objective_id: string;
-  kind: "mcq_single" | "short_answer";
+  kind: ItemKind;
   prompt: string;
   options: ItemOption[] | null;
   difficulty: number;
@@ -314,12 +322,78 @@ export interface PracticeSession {
   session_id: string;
   objective_id: string;
   status: "in_progress" | "completed" | "abandoned";
+  mode: "practice" | "review";
   item: Item | null;
   answered: number;
   /** The completion target frozen when the session was created; `total` is its display alias. */
   target_items: number;
   total: number;
   feedback: AnswerFeedback | null;
+}
+
+export interface ProjectRubricCriterion {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+export interface ProjectSummary {
+  id: string;
+  objective_id: string;
+  title: string;
+  est_minutes: number;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  brief_md: string;
+  rubric: ProjectRubricCriterion[];
+  min_artifact_chars: number;
+  min_reflection_chars: number;
+}
+
+export interface ProjectSubmission {
+  id: string;
+  project_id: string;
+  objective_id: string;
+  status: string;
+  rubric_checks: Record<string, boolean>;
+  missing: string[];
+  artifact_chars: number;
+  reflection_chars: number;
+  /** Only present on the POST response. */
+  evidence_recorded?: boolean;
+  plan_item_completed?: boolean;
+  created_at: string;
+}
+
+export interface ReviewQueueEntry {
+  objective_id: string;
+  title: string;
+  lesson_id: string | null;
+  reason: "fading" | "confirmation_spaced";
+  retrievability: number;
+  next_due_at: string | null;
+}
+
+export interface ReviewQueue {
+  due: ReviewQueueEntry[];
+  due_count: number;
+  confirmed_count: number;
+}
+
+export interface Flashcard {
+  item: Item;
+  objective_id: string;
+  repetitions: number;
+  interval_days: number;
+  due_at: string | null;
+  last_rating: string;
+}
+
+export interface FlashcardDeck {
+  due: Flashcard[];
+  due_count: number;
+  total_cards: number;
 }
 
 export interface TutorReply {

@@ -10,11 +10,24 @@ interface PracticePanelProps {
   t: (key: StringKey, values?: Record<string, string | number>) => string;
   objectiveId: string | null;
   lessonId: string | null;
+  /** Roadmap step this session completes when finished; without it the plan never ticks off. */
+  planItemId?: string | null;
+  goalId?: string | null;
+  mode?: "practice" | "review";
   aiAvailable: boolean;
   onFinished: () => void;
 }
 
-export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinished }: PracticePanelProps) {
+export function PracticePanel({
+  t,
+  objectiveId,
+  lessonId,
+  planItemId = null,
+  goalId = null,
+  mode = "practice",
+  aiAvailable,
+  onFinished,
+}: PracticePanelProps) {
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [session, setSession] = useState<PracticeSession | null>(null);
   const [feedback, setFeedback] = useState<PracticeSession["feedback"]>(null);
@@ -38,7 +51,8 @@ export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinishe
     return () => {
       cancelled = true;
     };
-  }, [lessonId]);
+    // A new target (different objective, plan step or mode) must never reuse an old session.
+  }, [lessonId, objectiveId, planItemId, mode]);
 
   async function start() {
     if (!objectiveId) return;
@@ -48,6 +62,9 @@ export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinishe
       const created = await api.post<PracticeSession>("/api/practice/sessions", {
         objective_id: objectiveId,
         size: 5,
+        plan_item_id: planItemId,
+        goal_id: goalId,
+        mode,
       });
       setSession(created);
       setFeedback(null);
@@ -164,6 +181,14 @@ export function PracticePanel({ t, objectiveId, lessonId, aiAvailable, onFinishe
                 hintLabel={t("practice.hintUsed")}
                 submitLabel={t("practice.submit")}
                 shortAnswerLabel={t("diagnostic.shortAnswer")}
+                numericLabel={t("item.numericLabel")}
+                chooseAllLabel={t("item.chooseAll")}
+                trueLabel={t("item.true")}
+                falseLabel={t("item.false")}
+                orderingTitle={t("item.orderingTitle")}
+                orderingHint={t("item.orderingHint")}
+                orderingChosenLabel={t("item.orderingChosen")}
+                orderingResetLabel={t("item.orderingReset")}
                 onSubmit={(response, usedHint) => void answer(response, usedHint)}
               />
             ) : (

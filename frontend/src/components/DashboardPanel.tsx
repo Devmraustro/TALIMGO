@@ -17,9 +17,11 @@ export function DashboardPanel({ t, data, onPrimaryAction, busy }: DashboardPane
   const actionLabel =
     action.kind === "diagnostic"
       ? t("dashboard.startDiagnostic")
-      : action.kind === "review"
-        ? t("practice.start")
-        : t("practice.start");
+      : action.kind === "build"
+        ? t("projects.startBuild")
+        : action.kind === "review"
+          ? t("review.start")
+          : t("practice.start");
 
   return (
     <>
