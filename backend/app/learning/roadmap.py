@@ -98,6 +98,19 @@ def _step_for(
     *,
     provisional_known: frozenset[str] = frozenset(),
 ) -> PlanStep:
+    if node.leaf_kind == "build" and state != "retaining":
+        # A build objective is never downgraded to a quiz — not by provisional knowledge and not
+        # by partial practice evidence. Capability at building is demonstrated by an artefact
+        # (ADR 0006 keeps project evidence its own kind; ADR 0008), so the step stays a build
+        # until the objective is confirmed, after which ordinary review applies.
+        return PlanStep(
+            objective_id=node.id,
+            kind="build",
+            est_minutes=node.est_minutes,
+            order_index=order_index,
+            lesson_id=node.lesson_id,
+            rationale="Project: build the artefact and submit it against the rubric.",
+        )
     if node.id in provisional_known and state != "retaining":
         # The learner answered a hard item correctly on the starting check. That is evidence, not
         # proof: they get a short confirmatory check instead of a lesson or a full practice set, and

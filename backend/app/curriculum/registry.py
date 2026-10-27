@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.curriculum.frontend_foundations import PATH as FRONTEND_FOUNDATIONS
 from app.curriculum.python_foundations import PATH as PYTHON_FOUNDATIONS
 
-PATHS: dict[str, dict[str, Any]] = {PYTHON_FOUNDATIONS["id"]: PYTHON_FOUNDATIONS}
+PATHS: dict[str, dict[str, Any]] = {
+    PYTHON_FOUNDATIONS["id"]: PYTHON_FOUNDATIONS,
+    FRONTEND_FOUNDATIONS["id"]: FRONTEND_FOUNDATIONS,
+}
 
 
 class UnknownPathError(KeyError):
