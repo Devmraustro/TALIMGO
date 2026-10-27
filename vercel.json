@@ -24,7 +24,6 @@
     }
   ],
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api-not-hosted-here" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

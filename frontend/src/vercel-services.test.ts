@@ -48,30 +48,36 @@ describe("root Vercel frontend-only configuration", () => {
     expect(config.rewrites).toBeDefined();
   });
 
-  it("refuses API paths explicitly while the backend host is not provisioned", () => {
+  it("keeps the SPA fallback away from API paths", () => {
     const config = readRootVercelConfig();
     const rewrites = config.rewrites ?? [];
 
-    // The API block must win before the SPA fallback, and its destination must not exist in the
-    // build output, so Vercel answers 404 instead of serving the interface for /api paths.
+    // Everything that is not an API path falls back to the interface; /api/* is excluded here and
+    // handled by the root middleware (below), because a rewrite to a missing destination falls
+    // through to this very fallback instead of answering 404 (verified live on 2026-10-25).
+    expect(rewrites).toHaveLength(1);
     expect(rewrites[0]).toEqual({
-      source: "/api/:path*",
-      destination: "/api-not-hosted-here",
-    });
-    expect(rewrites[rewrites.length - 1]).toEqual({
       source: "/((?!api/).*)",
       destination: "/index.html",
     });
   });
 
-  it("gives the backend project its own Python-only config", () => {
-    // talimgo-api's root directory is backend/; without this file it inherited the root
-    // frontend commands and failed every production build inside npm.
-    const backend = JSON.parse(
-      readFileSync(resolve(repositoryRoot, "backend", "vercel.json"), "utf8"),
-    ) as Record<string, unknown>;
-    expect(backend.framework).toBe("fastapi");
-    expect(JSON.stringify(backend)).not.toContain("npm");
+  it("answers API paths with a bare 404 through the root middleware", async () => {
+    // The middleware is the only Vercel construct that can answer a path with a status code:
+    // the modern config schema has no `status` field, and legacy `routes` (which can carry one)
+    // is mutually exclusive with the headers block this file also needs.
+    const { config, default: handler } = (await import("../../middleware")) as {
+      config: { matcher: string };
+      default: () => Response;
+    };
+
+    expect(config.matcher).toBe("/api/:path*");
+    const response = handler();
+    expect(response.status).toBe(404);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.text();
+    expect(body).toContain("no API is mounted here");
   });
 
   it("keeps security headers on all served paths", () => {
