@@ -93,13 +93,16 @@ def test_migrated_database_supports_the_application(tmp_path, monkeypatch) -> No
     command.upgrade(_alembic_config(database_url), "head")
 
     from app.curriculum.loader import load_all
+    from app.curriculum.registry import all_items, all_objectives, all_projects
     from app.services.progress import recompute_mastery
 
     with session_scope() as db:
         counts = load_all(db)
-        assert counts["objectives"] == 12
-        assert counts["items"] == 36
-        assert db.query(Item).count() == 36
+        # Derived from the registry so adding a path or items never rots this test.
+        assert counts["objectives"] == len(all_objectives())
+        assert counts["items"] == len(all_items())
+        assert counts["projects"] == len(all_projects())
+        assert db.query(Item).count() == len(all_items())
 
         user = User(email="migration@example.com", password_hash="x", display_name="M")
         db.add(user)

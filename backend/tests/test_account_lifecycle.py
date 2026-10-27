@@ -39,7 +39,7 @@ from app.models import (
     TutorThread,
     User,
 )
-from tests.conftest import answer_diagnostic_until_done, create_goal, register
+from tests.conftest import _correct_response, answer_diagnostic_until_done, create_goal, register
 
 VALID_REPLY = {
     "reply": "In Python 3, 7 / 2 is 3.5; int(7 / 2) drops the fraction.",
@@ -95,17 +95,10 @@ def _build_a_learner_with_history(ai_client_factory, monkeypatch) -> tuple[TestC
             "plan_item_id": item["id"],
         },
     ).json()
-    from app.curriculum.registry import item_index
-
-    index = item_index("python-foundations")
     while session["item"] is not None:
         current = session["item"]
-        key = index[current["id"]]["answer_key"]
-        payload = (
-            {"option_id": key["option_id"]}
-            if current["kind"] == "mcq_single"
-            else {"text": key["accepted"][0]}
-        )
+        # Kind-agnostic correct answer; practice now draws all six item kinds.
+        payload = _correct_response(current)
         session = client.post(
             f"/api/practice/sessions/{session['session_id']}/answers",
             json={"item_id": current["id"], "response": payload},
