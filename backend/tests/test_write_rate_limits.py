@@ -41,10 +41,12 @@ def test_write_limit_is_per_learner_not_per_browser(client_factory) -> None:
     second_cookie = client.cookies.get("talimgo_session")
     assert second_cookie and second_cookie != first_cookie
 
+    client.cookies.clear()
     client.cookies.set("talimgo_session", first_cookie)
     assert client.patch("/api/me/profile", json={"locale": "ar"}).status_code == 200
     assert client.patch("/api/me/profile", json={"locale": "en"}).status_code == 429
 
+    client.cookies.clear()
     client.cookies.set("talimgo_session", second_cookie)
     allowed = client.patch("/api/me/profile", json={"locale": "ar"})
     assert allowed.status_code == 200, allowed.text
