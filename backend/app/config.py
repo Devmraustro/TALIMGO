@@ -15,6 +15,7 @@ from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 from app.ai.policy import assert_local_endpoint
 
@@ -83,6 +84,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_environment(self) -> Settings:
+        # Vercel exposes VERCEL_ENV for the deployment target. A production deployment must never
+        # silently inherit the development defaults when TALIMGO_ENV is missing or mis-scoped.
+        if os.environ.get("VERCEL_ENV", "").strip().lower() == "production" and self.env != "production":
+            raise ValueError(
+                "TALIMGO_ENV must be explicitly set to production for Vercel production deployments."
+            )
+
         if self.env == "production":
             if len(self.session_secret) < _MIN_PRODUCTION_SECRET_LENGTH:
                 raise ValueError(
@@ -91,6 +99,14 @@ class Settings(BaseSettings):
                 )
             if "dev-only" in self.session_secret:
                 raise ValueError("The development session secret must not be used in production.")
+            try:
+                database_backend = make_url(self.database_url).get_backend_name()
+            except Exception as exc:
+                raise ValueError(
+                    "TALIMGO_DATABASE_URL must be a valid PostgreSQL URL in production."
+                ) from exc
+            if database_backend != "postgresql":
+                raise ValueError("TALIMGO_DATABASE_URL must use PostgreSQL in production.")
         if self.ai_enabled:
             if not self.ai_model.strip():
                 raise ValueError("TALIMGO_AI_MODEL must name the local model when AI is enabled.")
