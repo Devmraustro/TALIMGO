@@ -45,6 +45,7 @@ filterwarnings = ["error::DeprecationWarning:app.*"]
 [tool.ruff]
 line-length = 110
 target-version = "py311"
+extend-exclude = ["migrations/versions/*.py"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
@@ -56,6 +57,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Authored curriculum prose legitimately has long lines; it is content, not code shape.
 "app/curriculum/*.py" = ["E501"]
+# Auto-generated Alembic migration files; do not modify manually.
+"migrations/versions/*.py" = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
 
 [tool.vercel]
 entrypoint = "app.main:app"
