@@ -4,6 +4,39 @@ Status date: **2026-10-27**. Earlier public-host observations are preserved belo
 This file records what was actually observed about the Vercel deployment from outside, what it can and
 cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
+## 2026-11-01 re-check after PR #8 merge
+
+**Repository source:** `main` at `96f6f74d888f6cb14a985f97c2f31d7e08df477c`
+(PR #8, squash-merged).
+
+| Surface | Fresh observation | Interpretation |
+|---|---|---|
+| `talimgo-preview` frontend | Latest deployment `dpl_4WT7NLWw42zRZ5raZL6ppaXN5aNc`, target shown as Production, state `CANCELED` | Its build events show the configured Ignored Build Step deliberately exits 0 for `main`, printing `Skipping automatic TALIMGO deployment from main; branch previews remain enabled.` This is the intended no-auto-production policy, **not** a Vite build failure. |
+| Frontend project protection | SSO enabled for `all_except_custom_domains` | Do not assume the Vercel aliases or immutable deploy URLs are public. |
+| `talimgo-api` build | Latest deployment `dpl_3fC4PSs92jy68eor2FdGKjEnwLhs`, source `96f6f74`, state `READY` | Build and output creation succeeded. This does **not** prove runtime health, persistence or public reachability. |
+| API project live/protection | `live: false`; SSO enabled for `all` | The API project is not a verified public production service. |
+| API Production variables | Environment listing with decryption disabled reported `hiddenProductionEnvCount: 0` | No Production environment variables were configured at the time of inspection. |
+| API Preview variables | Returned variables were scoped to Preview and branch `experiment/vercel-fastapi-preview-20261031` | Those include a development mode, ephemeral SQLite configuration and AI disabled; they are isolated experiment values, not production settings. Secret values were not decrypted or displayed. |
+| API domains | `talimgo-api.vercel.app` is listed as verified | A configured domain does not make the protected project a working public API. |
+
+### Deployment conclusion
+
+PR #8 makes a Vercel Production runtime without explicit `TALIMGO_ENV=production` and
+PostgreSQL configuration fail closed. That is the correct safety behaviour. Do not add placeholder
+environment variables, point the project at an unverified database, disable SSO, or promote a
+deployment to make the status appear green.
+
+The next preferred hosting path is Alwaysdata, subject to the dedicated-account and same-origin
+requirements in [`ALWAYSDATA_DEPLOYMENT_RUNBOOK.md`](./ALWAYSDATA_DEPLOYMENT_RUNBOOK.md).
+The browser client currently sends requests to relative `/api/...` paths with same-origin
+credentials; a deployment must serve the interface and API through one browser origin or a
+same-origin reverse proxy/rewrite. A direct browser call to a separate API origin is not supported
+by the current `SameSite=Lax` cookie design.
+
+**No changes were made during this check:** no Vercel settings, environment variables, DNS,
+database, migration or deployment were modified. No AUSTRO resources were accessed.
+
+
 ## 2026-10-25 re-check (independent HTTP client, no Vercel integration needed for public reads)
 
 | Observation | Evidence |
