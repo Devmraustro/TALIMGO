@@ -22,6 +22,7 @@ POSTGRES_URL = "postgresql+psycopg://talimgo:not-a-real-password@db.internal:543
 @pytest.fixture
 def production_env(monkeypatch: pytest.MonkeyPatch):
     def apply(**overrides: str) -> None:
+        monkeypatch.delenv("VERCEL_ENV", raising=False)
         values = {
             "TALIMGO_ENV": "production",
             "TALIMGO_SESSION_SECRET": STRONG_SECRET,
