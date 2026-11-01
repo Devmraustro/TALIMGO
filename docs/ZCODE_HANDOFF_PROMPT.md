@@ -5,10 +5,11 @@
 ## 1. الحالة الفعلية عند آخر تحقق — 2026-11-01
 
 - الفرع الأساسي `main` على commit:
-  `96f6f74d888f6cb14a985f97c2f31d7e08df477c`.
-- تم دمج PR #8 بنجاح: [PR #8](https://github.com/Devmraustro/TALIMGO/pull/8).
-- CI بعد الدمج: [run #213](https://github.com/Devmraustro/TALIMGO/actions/runs/41312932891) — جميع الوظائف السبعة ناجحة.
-- عند SHA الخاص بـ PR #8: Backend pytest سجل 451 passed / 4 skipped / 0 failed؛ فحص النموذج المحلي الحقيقي بقي skipped لعدم وجود runtime في CI.
+  `765eed71ce967540491814fdb88dfae042fdea6b`.
+- تم دمج PR #9 بنجاح: [PR #9](https://github.com/Devmraustro/TALIMGO/pull/9).
+- CI بعد الدمج: [run #41314061952](https://github.com/Devmraustro/TALIMGO/actions/runs/41314061952) — جميع الوظائف السبعة ناجحة.
+- عند SHA الخاص بـ PR #9: Backend pytest سجل 454 passed / 1 skipped / 0 failed؛ الفحص المحلي الأمامي سجل 74 passed / 1 skipped / 1 timed out (اختبار ProjectsPanel ينتهي في ~8.5 ثانية عند التشغيل المنعزل، وي_timeout عند التحميل العالي للنظام في المجموعة الكاملة).
+- تم إصلاح تحذير أمان Vite (GHSA-8g5g-mxqh-grgj): تم التحديث من الإصدار 6.4.4 إلى 6.4.5، وتغيير ربط خادم التطوير من `0.0.0.0` إلى `127.0.0.1`. نتيجة `npm audit`: 0 ثغرات.
 - لا توجد PRs أو Issues مفتوحة عند آخر استعلام.
 - المزايا الموجودة بالفعل تشمل المسارين التعليميين، أنواع الأسئلة الستة، التخطيط الحتمي، التقدم، المشاريع ذات معايير قبول حتمية، قائمة المراجعة وبطاقات الاستذكار التعليمية. راجع `docs/IMPLEMENTATION_PLAN.md` قبل إعادة أي عمل.
 
@@ -16,7 +17,7 @@
 
 - `talimgo-preview`: إلغاء نشر `main` مقصود؛ Ignored Build Step يوقف النشر التلقائي لـ main ويُبقي branch previews. **لا تزل هذا الإعداد باعتباره bug**.
 - `talimgo-api`: آخر build من main حالته READY، لكن المشروع `live=false` ومحمٍ بـ SSO لجميع البيئات. فحص متغيرات البيئة دون فك تشفير أظهر صفر متغيرات Production؛ المتغيرات الموجودة خاصة بفرع Preview التجريبي فقط.
-- PR #8 يرفض إعداد Production ناقصاً: يجب أن تكون `TALIMGO_ENV=production` صريحة، وأن تكون قاعدة البيانات PostgreSQL. لا تضف قيماً وهمية ولا تستخدم SQLite في الإنتاج.
+- PR #9 يرفض إعداد Production ناقصاً: يجب أن تكون `TALIMGO_ENV=production` صريحة، وأن تكون قاعدة البيانات PostgreSQL. لا تضف قيماً وهمية ولا تستخدم SQLite في الإنتاج.
 - لذلك: لا API عام موثّق حتى الآن، ولا قاعدة بيانات TALIMGO Production مؤكدة، ولا نشر إنتاج مكتمل.
 
 ### الاستضافة المفضلة
