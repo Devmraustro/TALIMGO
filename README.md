@@ -77,16 +77,20 @@ export TALIMGO_AI_MODEL=qwen2.5:7b-instruct
 | [`docs/IMPLEMENTATION_PLAN.md`](./docs/IMPLEMENTATION_PLAN.md) | Checkpoints, status, acceptance criteria |
 | [`docs/OPEN_SOURCE_REUSE_AUDIT.md`](./docs/OPEN_SOURCE_REUSE_AUDIT.md) | Every candidate/component, licence, decision |
 | [`docs/LOCAL_AI_ARCHITECTURE.md`](./docs/LOCAL_AI_ARCHITECTURE.md) | Local inference, model choice, no-cloud guarantees |
+| [`docs/ZERO_COST_LOCAL_AI_SETUP.md`](./docs/ZERO_COST_LOCAL_AI_SETUP.md) | Cost-free local demo and safe private-pilot checklist |
+| [`docs/ALWAYSDATA_DEPLOYMENT_RUNBOOK.md`](./docs/ALWAYSDATA_DEPLOYMENT_RUNBOOK.md) | Alwaysdata ASGI/PostgreSQL deployment preparation; not yet executed |
 | [`docs/SECURITY_THREAT_MODEL.md`](./docs/SECURITY_THREAT_MODEL.md) | Assets, threats, mitigations, residual risk |
 | [`docs/adr/`](./docs/adr/) | Architecture decision records |
 | [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) | Attributions for reused third-party code |
 
 ## Honest limitations (as of the current commit)
 
-- The learner UI covers the first vertical slice only; many sections of the master reference (projects,
-  spaced review, billing, institutional features) are **not built**.
-- No local model weights are bundled or downloaded by this repository; tutoring requires a runtime you
-  install yourself.
-- Automated accessibility checks are partial; a full WCAG 2.2 AA audit has **not** been performed.
+- The implemented learner slice includes deterministic assessment, roadmap/practice, project submissions,
+  review queue and study-only flashcards. Billing, email verification/password reset, product analytics and
+  institutional administration remain **not implemented**.
+- No local model weights are bundled or downloaded by this repository; tutoring requires an operator-installed
+  local runtime and real-weight quality evaluation, neither of which is verified yet.
+- Automated accessibility checks run in CI; a full human WCAG 2.2 AA audit has **not** been performed.
+- No production host/database has been provisioned and verified. Vercel build success alone is not production readiness.
 - Trademark/domain clearance is unresolved (`TALIMGO_MASTER_REFERENCE.md` §21). Use this repository
   name in development; do not assume the brand is clear for public launch.
