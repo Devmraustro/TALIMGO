@@ -92,9 +92,7 @@ def test_production_serves_no_interactive_docs_but_keeps_the_policy(
     development = client_factory()
     assert development.get("/api/docs").status_code == 200
 
-    production = client_factory(
-        TALIMGO_ENV="production", TALIMGO_DATABASE_URL=production_sqlite_engine
-    )
+    production = client_factory(TALIMGO_ENV="production", TALIMGO_DATABASE_URL=production_sqlite_engine)
     assert production.get("/api/docs").status_code == 404
     assert production.get("/api/openapi.json").status_code == 404
     _assert_baseline(production.get("/api/health"))
