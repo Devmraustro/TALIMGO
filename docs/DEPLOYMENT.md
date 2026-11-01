@@ -46,20 +46,23 @@ exits non-zero if anything is wrong:
 cd backend && .venv/bin/python scripts/check_production_config.py
 ```
 
-It also covers the one requirement the application itself does not enforce:
+The preflight repeats the application's critical startup checks and gives an operator-readable
+verdict summary without printing configuration values:
 
 * `TALIMGO_ENV=production`, and the API then serves no interactive docs;
-* `TALIMGO_SESSION_SECRET` of 32+ characters without a placeholder marker (the application refuses a
-  weak or development secret in production, so the preflight reports that refusal);
-* `TALIMGO_DATABASE_URL` on PostgreSQL. **The application will start on SQLite in production mode** —
-  the deployment requirement is PostgreSQL 14+, and this check is what enforces it;
-* at least one explicit `TALIMGO_ALLOWED_ORIGINS` entry, with no wildcard (the application refuses a
-  wildcard at startup);
+* on Vercel, `VERCEL_ENV=production` requires `TALIMGO_ENV=production` explicitly — a deployment
+  must never fall through to the development defaults;
+* `TALIMGO_SESSION_SECRET` of 32+ characters without a placeholder marker;
+* `TALIMGO_DATABASE_URL` must use PostgreSQL. The application rejects SQLite and malformed database
+  URLs in production before an engine is constructed;
+* at least one explicit `TALIMGO_ALLOWED_ORIGINS` entry, with no wildcard;
 * tutoring off, or enabled with a model name and a local endpoint.
 
 Startup is validated and fails closed:
 
 * production refuses to start without a strong session secret;
+* production refuses SQLite or any non-PostgreSQL database URL before creating the database engine;
+* a Vercel production deployment refuses to start unless `TALIMGO_ENV=production` is explicitly set;
 * production refuses to create schema implicitly — if the `objectives` table is missing it raises with
   the exact command to run;
 * if `TALIMGO_AI_ENABLED=true`, the endpoint must be loopback/private or the process refuses to start
