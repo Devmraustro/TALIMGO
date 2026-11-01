@@ -70,7 +70,7 @@ and a dedicated least-privilege login with the schema/table/sequence rights requ
 Do not use a shared personal account login or an existing database whose ownership is uncertain.
 
 Alwaysdata's docs list PostgreSQL on port 5432 and state that the exact hostname is account-specific.
-Use the hostname and port shown by the TALIMdata account screen; encode reserved characters in the
+Use the hostname and port shown by the Alwaysdata account screen; encode reserved characters in the
 database URL username/password correctly. The application expects SQLAlchemy's Psycopg URL form:
 
 ```text
