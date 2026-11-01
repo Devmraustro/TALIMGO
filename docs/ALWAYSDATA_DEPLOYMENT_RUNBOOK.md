@@ -52,7 +52,7 @@ cd "$HOME/apps/talimgo"
 git clone --branch main --single-branch https://github.com/Devmraustro/TALIMGO.git current
 cd current/backend
 
-python3.11 -m venv .venv
+PYTHON_VERSION=3.11 python -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install .
 ```
