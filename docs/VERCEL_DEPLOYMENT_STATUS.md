@@ -1,6 +1,6 @@
 ﻿# Vercel deployment — verified state and owner actions
 
-Status date: **2026-10-27**. Earlier public-host observations are preserved below with their original dates.
+Status date: **2026-11-01**. Earlier public-host observations are preserved below with their original dates.
 This file records what was actually observed about the Vercel deployment from outside, what it can and
 cannot do, and the exact owner actions that remain. It is a snapshot: re-verify before relying on it.
 
