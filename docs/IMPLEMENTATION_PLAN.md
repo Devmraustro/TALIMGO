@@ -4,9 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-11-01 (§7.27 records PR #8's production fail-closed config guard, post-merge CI, and a fresh Vercel deployment-state check; hosting/runtime and real local-model verification remain owner/infrastructure blockers).
-jobs at commit `f5c2afb`; §7.24 added for the per-IP decision serialisation, local verification only
-until the next CI run; the status table below was rechecked against GitHub Actions runs on 2026-10-21).
+Last updated: 2026-11-01 (§7.27 records PR #8's production fail-closed config guard, post-merge CI, and the Vercel deployment-state inspection; hosting/runtime and real local-model verification remain owner/infrastructure blockers. Historical status entries retain their original evidence dates.)
 
 ---
 
