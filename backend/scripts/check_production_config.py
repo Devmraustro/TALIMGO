@@ -4,8 +4,8 @@
 
 It reads the same settings the API reads (`app.config`) and applies the production requirements from
 docs/DEPLOYMENT.md, including the application's fail-closed production requirement:
-PostgreSQL instead of SQLite. Nothing here prints a configuration *value*: results name the setting and the verdict only, so
-the output is safe to paste into a ticket.
+PostgreSQL instead of SQLite. Nothing here prints a configuration *value*:
+results name the setting and the verdict only, so the output is safe to paste into a ticket.
 
 Exit code 0 means every check passed; 1 means at least one failed and the API must not be deployed.
 """
