@@ -57,6 +57,32 @@ def _teardown() -> None:
 
 
 @pytest.fixture()
+def production_sqlite_engine(tmp_path, monkeypatch) -> str:
+    """Test-only SQLite engine behind a PostgreSQL production URL.
+
+    Production Settings must still validate a PostgreSQL URL. This fixture replaces only the
+    database-engine factory for in-process tests that exercise production HTTP/cookie behaviour;
+    it never opens a PostgreSQL connection and the temporary SQLite file is isolated per test.
+    """
+    from sqlalchemy.engine import make_url
+
+    from app import db
+
+    original_builder = db._build_engine
+    database_path = tmp_path / "production-mode-test-only.db"
+    sqlite_url = f"sqlite:///{database_path}"
+
+    def build_test_engine(url: str):
+        backend = make_url(url).get_backend_name()
+        if backend in {"sqlite", "postgresql"}:
+            return original_builder(sqlite_url)
+        return original_builder(url)
+
+    monkeypatch.setattr(db, "_build_engine", build_test_engine)
+    return "postgresql+psycopg://talimgo:test-only@127.0.0.1:5432/talimgo"
+
+
+@pytest.fixture()
 def client(tmp_path, monkeypatch) -> Iterator[TestClient]:
     with _build_client(tmp_path, monkeypatch) as test_client:
         yield test_client

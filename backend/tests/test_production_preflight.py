@@ -1,8 +1,8 @@
 """Tests for the production preflight script.
 
 The script reads the same settings object the API uses, so these tests point it at a temporary
-environment. The production requirements mirror docs/DEPLOYMENT.md; the database check is the one the
-application itself does not enforce, which is why it is asserted here.
+environment. The production requirements mirror docs/DEPLOYMENT.md. The preflight repeats the application's
+fail-closed checks and prints operator-readable verdicts.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ POSTGRES_URL = "postgresql+psycopg://talimgo:not-a-real-password@db.internal:543
 @pytest.fixture
 def production_env(monkeypatch: pytest.MonkeyPatch):
     def apply(**overrides: str) -> None:
+        monkeypatch.delenv("VERCEL_ENV", raising=False)
         values = {
             "TALIMGO_ENV": "production",
             "TALIMGO_SESSION_SECRET": STRONG_SECRET,
@@ -48,12 +49,11 @@ def test_a_correct_production_environment_passes(production_env, capsys) -> None
 
 
 def test_a_sqlite_production_database_is_refused(production_env, capsys) -> None:
-    """The application allows it; the preflight does not, because docs require PostgreSQL 14+."""
+    """The application itself now refuses SQLite in production, before the preflight reports checks."""
     production_env(TALIMGO_DATABASE_URL="sqlite:///./talimgo.db")
-    with pytest.raises(SystemExit) as refused:
+    with pytest.raises(SystemExit):
         preflight.main()
-    assert "FAILED" in str(refused.value)
-    assert "development convenience only" in capsys.readouterr().out
+    assert "startup configuration rejected" in capsys.readouterr().out
 
 
 def test_a_development_environment_is_refused(production_env, capsys) -> None:

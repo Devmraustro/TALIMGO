@@ -59,7 +59,12 @@ def test_production_requires_a_strong_session_secret() -> None:
 
 
 def test_production_accepts_a_long_secret() -> None:
-    settings = Settings(env="production", session_secret="x" * 48, _env_file=None)
+    settings = Settings(
+        env="production",
+        session_secret="x" * 48,
+        database_url="postgresql+psycopg://talimgo:test-only@127.0.0.1:5432/talimgo",
+        _env_file=None,
+    )
     assert settings.env == "production"
 
 
@@ -145,12 +150,14 @@ def test_the_session_cookie_is_httponly_samesite_lax_and_path_scoped(client) -> 
     assert "secure" not in lowered, "development runs over http; Secure is a production property"
 
 
-def test_the_session_cookie_is_secure_in_production(client_factory) -> None:
+def test_the_session_cookie_is_secure_in_production(client_factory, production_sqlite_engine: str) -> None:
     """Secure is driven by the environment, so this asserts the production value explicitly."""
     development = client_factory()
     assert "secure" not in _register_and_capture_cookie(development, "dev-cookie@example.com").lower()
 
-    production = client_factory(TALIMGO_ENV="production")
+    # Settings sees the required PostgreSQL URL; the test-only engine fixture routes it to an
+    # isolated SQLite file so the cookie contract can be exercised without a database service.
+    production = client_factory(TALIMGO_ENV="production", TALIMGO_DATABASE_URL=production_sqlite_engine)
     cookie = _register_and_capture_cookie(production, "prod-cookie@example.com")
     assert "secure" in cookie.lower()
 
