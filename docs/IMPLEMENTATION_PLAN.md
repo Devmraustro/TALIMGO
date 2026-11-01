@@ -4,7 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-10-24 (§7.23 is CI-verified — GitHub Actions runs #157 and #158 passed all seven
+Last updated: 2026-11-01 (§7.27 records PR #8's production fail-closed config guard, post-merge CI, and a fresh Vercel deployment-state check; hosting/runtime and real local-model verification remain owner/infrastructure blockers).
 jobs at commit `f5c2afb`; §7.24 added for the per-IP decision serialisation, local verification only
 until the next CI run; the status table below was rechecked against GitHub Actions runs on 2026-10-21).
 
@@ -1099,3 +1099,51 @@ Vercel (observed via API, 2026-10-27): **talimgo-api deployments are READY** for
 talimgo-preview deployments were **CANCELED by the project's Verified-Commits protection**
 ("commit signature couldn't be verified") because this work's commits are unsigned; the owner
 (or Z Code on the owner's machine) resolves this by merging/pushing with the signing key.
+
+
+### 7.27 Production configuration fail-closed and post-merge deployment reconciliation (2026-11-01) — IMPLEMENTED, CI-verified
+
+**Production configuration guard.** PR #8 was merged into `main` at
+`96f6f74d888f6cb14a985f97c2f31d7e08df477c`. The application now refuses SQLite, malformed and
+non-PostgreSQL database URLs whenever `TALIMGO_ENV=production`; a Vercel deployment whose
+`VERCEL_ENV=production` must explicitly set `TALIMGO_ENV=production`, rather than silently
+inheriting development defaults. Preview environments can retain their explicitly isolated
+development/SQLite setup. Regression tests and deployment documentation were added in the PR.
+
+**CI evidence.**
+
+| Run | Trigger / commit | Result |
+|---|---|---|
+| [#210](https://github.com/Devmraustro/TALIMGO/actions/runs/41311327297) | Push, PR head `9d06cfb` | 7/7 jobs passed; backend pytest: 451 passed, 4 skipped, 0 failed |
+| [#211](https://github.com/Devmraustro/TALIMGO/actions/runs/41311331607) | Pull request #8, same head | 7/7 jobs passed |
+| [#213](https://github.com/Devmraustro/TALIMGO/actions/runs/41312932891) | Push after squash merge; main at `96f6f74` | 7/7 jobs passed |
+
+The opt-in real local-model integration remains skipped because CI has no local runtime configured:
+`set TALIMGO_TEST_LOCAL_MODEL=1 and configure a local runtime to run this test`. Mock-adapter
+coverage is not evidence of real Arabic response quality, latency or grounding.
+
+**Vercel reconciliation (read-only inspection, 2026-11-01).**
+
+- `talimgo-preview` on `main` is intentionally skipped by its Ignored Build Step:
+  `Skipping automatic TALIMGO deployment from main; branch previews remain enabled.` Its latest
+  deployment is therefore `CANCELED` by policy, not by a failed frontend compilation. Do not
+  remove this guard as a supposed repair.
+- `talimgo-api` built successfully (`READY`) from the merged commit, but the project is not live
+  and SSO protection applies to all deployment targets. The environment inspection (without
+  decrypting any value) found zero Production variables; the available variables were scoped only
+  to the isolated Preview experiment branch. A READY build is not proof of a healthy or public API.
+- The fail-closed production configuration intentionally prevents a valid production start until
+  the owner supplies the exact production environment, including a dedicated PostgreSQL URL,
+  strong session secret, explicit browser origin(s), and `TALIMGO_ENV=production`.
+
+**Scope and safety.** No Vercel project settings, environment variables, aliases, production
+deployments, PostgreSQL databases, migrations or AUSTRO resources were modified or accessed by
+this reconciliation. No real local model has been installed or evaluated.
+
+**Next execution boundary.** Repository-side preparation is documented in
+`docs/ALWAYSDATA_DEPLOYMENT_RUNBOOK.md`. The selected hosting preference is Alwaysdata, but the
+actual account, web site, PostgreSQL database/role, domain and plan must first be confirmed as
+dedicated to TALIMGO. Do not reuse a database, role, environment file or host that may belong to
+AUSTRO. The API must remain behind a same-origin `/api` route because the frontend uses
+same-origin fetch and `SameSite=Lax` session cookies. Do not run migrations, expose a site or
+claim production readiness until that topology and isolated database ownership are verified.
