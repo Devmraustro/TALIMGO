@@ -83,13 +83,18 @@ def test_the_strict_policy_has_no_exceptions_in_it() -> None:
     assert "*" not in API_CSP.replace("'none'", "")
 
 
-def test_production_serves_no_interactive_docs_but_keeps_the_policy(client_factory) -> None:
+def test_production_serves_no_interactive_docs_but_keeps_the_policy(
+    client_factory, production_sqlite_engine: str
+) -> None:
     # A development instance first, so the schema exists: production refuses to create it implicitly.
-    # Both clients share this test's database file.
+    # The fixture presents a valid PostgreSQL URL to Settings and maps the test engine to one
+    # disposable SQLite file; no PostgreSQL connection is attempted by this in-process policy test.
     development = client_factory()
     assert development.get("/api/docs").status_code == 200
 
-    production = client_factory(TALIMGO_ENV="production")
+    production = client_factory(
+        TALIMGO_ENV="production", TALIMGO_DATABASE_URL=production_sqlite_engine
+    )
     assert production.get("/api/docs").status_code == 404
     assert production.get("/api/openapi.json").status_code == 404
     _assert_baseline(production.get("/api/health"))
