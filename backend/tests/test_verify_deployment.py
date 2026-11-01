@@ -70,14 +70,18 @@ def test_header_policy_accepts_the_application_policy(results) -> None:
     assert results.failures == 0
 
 
-def test_api_flow_passes_against_the_real_application(monkeypatch, tmp_path) -> None:
+def test_api_flow_passes_against_the_real_application(
+    monkeypatch, tmp_path, production_sqlite_engine: str
+) -> None:
     """Register, session read-back, goal persistence and self-deletion, in-process.
 
     Runs the application in `production` mode (the mode this script exists to verify): the docs UI
     must be absent, so the schema is created first, exactly as `alembic upgrade head` would.
     """
     monkeypatch.setenv("TALIMGO_ENV", "production")
-    monkeypatch.setenv("TALIMGO_DATABASE_URL", f"sqlite:///{tmp_path / 'verify-deployment.db'}")
+    # Settings validates the production PostgreSQL URL; the test fixture maps the engine to
+    # an isolated SQLite file so the verifier journey stays disposable and does not need a service.
+    monkeypatch.setenv("TALIMGO_DATABASE_URL", production_sqlite_engine)
     monkeypatch.setenv("TALIMGO_SESSION_SECRET", "verify-deployment-test-session-secret-value")
     monkeypatch.setenv("TALIMGO_AI_ENABLED", "false")
     from app.config import reset_settings_cache
