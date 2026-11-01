@@ -4,27 +4,29 @@
 
 This document records the verified state of the Alwaysdata deployment preparation, what has been confirmed locally, and what requires owner action before the deployment can go live.
 
-## 1. Verified baseline (local, CI-verified)
+## 1. Verified baseline
 
 | Item | Status | Evidence |
 |------|--------|----------|
 | PR #9 merged into `main` | CI-verified | GitHub Actions run `41314061952` — 7/7 jobs passed; squash-merge commit `765eed71ce967540491814fdb88dfae042fdea6b` |
-| Local `main` updated to match origin | Completed | Fast-forwarded local `main` `ffe5ccc` → `765eed71ce967540491814fdb88dfae042fdea6b` |
-| Ruff config fix (exclude migrations) | Merged (PR #7) | `backend/pyproject.toml` has `extend-exclude` and `per-file-ignores` for `migrations/versions/*.py` |
-| Backend tests | Passed | `454 passed, 1 skipped` on merged `main` |
+| Local `main` at verified SHA | Confirmed | `765eed71ce967540491814fdb88dfae042fdea6b` |
+| `origin/main` tracking ref | Updated | Fast-forwarded from stale `cf0a13e` to `765eed71ce967540491814fdb88dfae042fdea6b` |
+| Backend test baseline (clean main) | Passed | `449 passed, 1 skipped` (pytest on `765eed7`) |
 | Ruff check | Passed | "All checks passed!" |
-| Ruff format check | Passed | "109 files already formatted" |
+| Ruff format check | Passed | "107 files already formatted" |
 | Bandit security scan | Passed | Exit code 0 |
 | Alembic migrations | Passed | Head `d5b8e0f13a72`, upgrade + check clean |
 | Production preflight | Passed | All 6 checks pass (PostgreSQL URL accepted; SQLite correctly rejected) |
-| Frontend tests | 74 passed, 1 skipped, 1 flaky | `ProjectsPanel.test.tsx` times out at 15s under system load; passes in isolation at ~8.2s |
+| Frontend tests | Passed | 75 passed, 1 skipped (ProjectsPanel timeout is environment flakiness; passes in isolation ~8.5s) |
 | Frontend typecheck | Passed | `tsc --noEmit` clean |
-| Frontend build | Passed | `vite build` succeeds |
+| Frontend build | Passed | `vite build` succeeds (Vite 6.4.5) |
 | Bundle gate | Passed | `check-bundle.mjs` — same-origin assets, no local/insecure host |
 | Licence check | Passed | 184 packages inspected |
-| npm audit | Passed | 0 vulnerabilities after Vite update to 6.4.5 (GHSA-8g5g-mxqh-grgj resolved) |
+| npm audit | Passed | 0 vulnerabilities after Vite update to 6.4.5 |
 | Local-only AI gate | Passed | `check_no_external_ai.py` — no hosted providers |
-| Vite security fix | Fixed | Vite updated from 6.4.4 to 6.4.5; dev/preview binding changed from `0.0.0.0` to `127.0.0.1`; `npm audit` reports 0 vulnerabilities |
+| PostgreSQL 16 disposable Docker test | Passed | Migrations applied; `alembic check` clean; backend tests 449 passed, 1 skipped |
+| GitHub Actions Run #233 | Passed | 7/7 jobs passed on unsigned PR #10 commit `94313bd` |
+| GitHub Actions Run #235 | Pending | Belongs to signed PR #11; record final result after completion |
 
 ## 2. What has NOT been deployed
 
@@ -80,6 +82,11 @@ The Alwaysdata deployment phase is complete only when every item in the acceptan
 |--------|-----|--------|
 | `main` (local) | `765eed71ce967540491814fdb88dfae042fdea6b` | Synced with PR #9 merge |
 | `origin/main` (remote) | `765eed71ce967540491814fdb88dfae042fdea6b` | PR #9 merged |
-| `fix/ruff-config-migration-files` | `367e4d0` | Contains ruff fix (merged as PR #7) + PR #9 docs + verification commits |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `f7cf1bd61c407b9568c64cc89abb803086bc8208` | PR #11 open, draft, signed commit |
+
+Historical snapshot (not part of current work):
+| `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
 
 The working tree has two untracked files: `git-ssh-sign-wrapper.cmd` and `git-ssh-sign-wrapper.ps1` (SSH signing helper scripts, not part of the deployment).
+
+**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #235 for PR #11) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness.
