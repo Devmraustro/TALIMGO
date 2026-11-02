@@ -27,6 +27,7 @@ This document records the verified state of the Alwaysdata deployment preparatio
 | PostgreSQL 16 disposable Docker test | Passed | Migrations applied; `alembic check` clean; backend tests 449 passed, 1 skipped |
 | GitHub Actions Run #233 | Passed | 7/7 jobs passed on unsigned PR #10 commit `94313bd` |
 | GitHub Actions Run #237 | Passed | 7/7 jobs passed on signed PR #11 commit `b888e570838caaafad35021de8f10faa726544b6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41358309523 |
+| GitHub Actions Run #239 | Passed | 7/7 jobs passed on signed PR #11 commit `1ecfd4cc634875681146690004dd7363409f8fa6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41488205784 |
 
 ## 2. What has NOT been deployed
 
@@ -82,11 +83,12 @@ The Alwaysdata deployment phase is complete only when every item in the acceptan
 |--------|-----|--------|
 | `main` (local) | `765eed71ce967540491814fdb88dfae042fdea6b` | Synced with PR #9 merge |
 | `origin/main` (remote) | `765eed71ce967540491814fdb88dfae042fdea6b` | PR #9 merged |
-| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `b888e570838caaafad35021de8f10faa726544b6` | PR #11 open, draft, signed commit |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `1ecfd4cc634875681146690004dd7363409f8fa6` | PR #11 open, draft, signed commit |
 
 Historical snapshot (not part of current work):
 | `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `b888e570838caaafad35021de8f10faa726544b6` | Previous PR #11 commit; Vercel previews READY for this SHA |
 
 The working tree has two untracked files: `git-ssh-sign-wrapper.cmd` and `git-ssh-sign-wrapper.ps1` (SSH signing helper scripts, not part of the deployment).
 
-**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness. Both Vercel `talimgo-preview` and `talimgo-api` previews are READY for exact SHA `b888e57`.
+**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11 commit `b888e57`, Run #239 for PR #11 commit `1ecfd4c`) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness. Both Vercel `talimgo-preview` and `talimgo-api` previews are READY for exact SHA `1ecfd4cc634875681146690004dd7363409f8fa6`.
