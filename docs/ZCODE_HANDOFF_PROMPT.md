@@ -12,12 +12,11 @@
 - تم إصلاح تحذير أمان Vite (GHSA-8g5g-mxqh-grgj): تم التحديث من الإصدار 6.4.4 إلى 6.4.5، وتغيير ربط خادم التطوير من `0.0.0.0` إلى `127.0.0.1`. نتيجة `npm audit`: 0 ثغرات.
 - PR #10 لا يزال مفتوحاً كمسودة (draft) على الفرع غير الموقّع.
 - PR #11 هو الاستبدال الموقّع ويظل مفتوحاً كمسودة (draft).
-- الكاميت الحالي للفرع: `a1034237ef4b8683de4025e31b110ca484f2cdb3` (مستودع `fix/frontend-vite-security-and-deployment-status-signed-v2` على GitHub).
-- معاينتا Vercel مسبقاً لهذا SHA `a1034237ef4b8683de4025e31b110ca484f2cdb3`: كلتاهما READY.
-- CI بعد الدمج: [run #41490792120](https://github.com/Devmraustro/TALIMGO/actions/runs/41490792120) — جميع الوظائف السبعة ناجحة (لكاميت `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` السابق).
+- الكاميت الحالي للفرع: `6813a3a4dcfa11e7084601b79d5e68010b3a22b3` (مستودع `fix/frontend-vite-security-and-deployment-status-signed-v2` على GitHub).
+- الكاميت `1ecfd4cc634875681146690004dd7363409f8fa6` مع Run #239 (7/7 ناجح) مسجل كمرجع تاريخي في `docs/ALWAYSDATA_DEPLOYMENT_STATUS.md`. لا يُعدّ هذا رأس الفرع الحالي.
 
 **تاريخ المرجع (snapshot التاريخي):**  
-الكاميت `1ecfd4cc634875681146690004dd7363409f8fa6` مع Run #239 (7/7 ناجح) مسجل كمرجع تاريخي في `docs/ALWAYSDATA_DEPLOYMENT_STATUS.md`. لا يُعدّ هذا رأس الفرع الحالي.
+الكاميت `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` مع Run #241 (7/7 ناجح، PR branch CI validation) مسجل كمرجع تاريخي. لا يُعدّ هذا رأس الفرع الحالي.
 
 ### حالة Vercel — لا تخلط بين البناء والإنتاج
 
