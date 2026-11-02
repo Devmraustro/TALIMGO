@@ -2,9 +2,9 @@
 
 **Status date: 2026-11-02**
 
-This document records the verified state of the Alwaysdata deployment preparation, what has been confirmed locally, and what requires owner action before the deployment can go live.
+This document records an evidence snapshot of the Alwaysdata deployment preparation, what has been confirmed locally, and what requires owner action before the deployment can go live.
 
-## 1. Verified baseline
+## 1. Verified baseline (evidence snapshot as of 2026-11-02)
 
 | Item | Status | Evidence |
 |------|--------|----------|
@@ -28,6 +28,8 @@ This document records the verified state of the Alwaysdata deployment preparatio
 | GitHub Actions Run #233 | Passed | 7/7 jobs passed on unsigned PR #10 commit `94313bd` |
 | GitHub Actions Run #237 | Passed | 7/7 jobs passed on signed PR #11 commit `b888e570838caaafad35021de8f10faa726544b6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41358309523 |
 | GitHub Actions Run #239 | Passed | 7/7 jobs passed on signed PR #11 commit `1ecfd4cc634875681146690004dd7363409f8fa6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41488205784 |
+
+**Note:** The live branch head, latest CI results, and current Vercel deployments must be checked through PR #11 on GitHub. The data above is an evidence snapshot as of the status date above, not a live assertion of branch state.
 
 ## 2. What has NOT been deployed
 
@@ -83,13 +85,15 @@ The Alwaysdata deployment phase is complete only when every item in the acceptan
 |--------|-----|--------|
 | `main` (local) | `765eed71ce967540491814fdb88dfae042fdea6b` | Synced with PR #9 merge |
 | `origin/main` (remote) | `765eed71ce967540491814fdb88dfae042fdea6b` | PR #9 merged |
-| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` | PR #11 open, draft, signed commit |
 
-Historical snapshot (not part of current work):
-| `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
+The current branch head (`fix/frontend-vite-security-and-deployment-status-signed-v2`) and its latest CI/Vercel state must be checked through PR #11 on GitHub. Historical commit SHAs from prior documentation snapshots are listed below for reference only.
+
+Historical commit SHAs (not part of current work):
+| Branch | SHA | Status |
+|--------|-----|--------|
 | `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `b888e570838caaafad35021de8f10faa726544b6` | Previous PR #11 commit; Vercel previews READY for this SHA |
 | `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `1ecfd4cc634875681146690004dd7363409f8fa6` | Previous PR #11 commit; Vercel previews READY for this SHA |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` | Previous PR #11 commit; CI run #41490792120 passed 7/7 |
+| `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
 
-The working tree had two untracked files as of 2026-11-01: `git-ssh-sign-wrapper.cmd` and `git-ssh-sign-wrapper.ps1` (SSH signing helper scripts, not part of the deployment).
-
-**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11 commit `b888e57`, Run #239 for PR #11 commit `1ecfd4c`) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness. Both Vercel `talimgo-preview` and `talimgo-api` previews are READY for exact SHA `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d`.
+**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11 commit `b888e57`, Run #239 for PR #11 commit `1ecfd4c`) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness.
