@@ -32,8 +32,15 @@ PostgreSQL server, reverse proxy, container runtime or TLS certificate has been 
 ```bash
 cd backend
 .venv/bin/alembic upgrade head          # creates/updates the schema
+.venv/bin/python scripts/load_curriculum.py  # deliberately mirrors the authored curriculum
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
 ```
+
+Curriculum loading is a separate release step, not an implicit production-startup side effect. The
+command refuses an empty, manually-created, or stale schema that is not at the repository's Alembic
+head. It upserts the authored records by stable identifier, may be rerun after content releases, and
+does not delete learner accounts, goals, or evidence. Run it after migrations and before the learner
+journey is opened; `/api/health` alone does not prove that lessons and assessment items are present.
 
 ### Production preflight
 
@@ -442,6 +449,7 @@ cd backend && .venv/bin/python scripts/check_production_config.py
 # 3. Database: back up before a release that contains a migration, then apply migrations.
 pg_dump --format=custom --no-owner --no-acl --file ~/talimgo-pre-release.dump "$PGDATABASE"
 .venv/bin/alembic upgrade head && .venv/bin/alembic check
+.venv/bin/python scripts/load_curriculum.py
 
 # 4. Service: restart under the unit, which re-runs the preflight, the migrations and the readiness
 #    probe (see §8). A failed probe makes the start fail rather than leaving a half-served service.
@@ -507,7 +515,7 @@ deployment can be called verified until they are done and their results recorded
 | 2 | **DNS and TLS**: point the hostname at the host, obtain a certificate for it | `curl -I https://<host>` answers over TLS with a valid chain for that name |
 | 3 | **Create the service user and directories**: `talimgo` user, `/srv/talimgo`, `/var/lib/talimgo`, `/etc/talimgo` | `systemctl start talimgo-api` can read its code and write only where it should |
 | 4 | **Generate secrets on the host**: `TALIMGO_SESSION_SECRET` (`openssl rand -base64 48`), the PostgreSQL password, and the environment file at `/etc/talimgo/talimgo.env` (root-owned, mode 0600) | `scripts/check_production_config.py` passes on the host; no secret exists anywhere in the repository or in chat |
-| 5 | **Provision PostgreSQL**: database and role for TALIMGO, reachable only from the API host, with your backup tooling pointed at it | `alembic upgrade head` runs on the host | 
+| 5 | **Provision PostgreSQL**: database and role for TALIMGO, reachable only from the API host, with your backup tooling pointed at it | `alembic upgrade head` and `scripts/load_curriculum.py` run on the host; the authored content inventory is present |
 | 6 | **Firewall/network**: 443 public, SSH restricted to the owner, PostgreSQL **not** reachable from the internet | An external port scan shows only 443 (and your SSH port) open |
 | 7 | **Install the units** from `deploy/systemd/`, enable the API service and the maintenance timer | `systemctl status talimgo-api` is active and `systemctl list-timers talimgo-maintenance` shows the next run |
 | 8 | **First release** by the procedure in §10, ending with `verify_deployment.py` against the real hostname | The verifier passes and its output is recorded (date, host, result) |
@@ -520,6 +528,7 @@ deployment can be called verified until they are done and their results recorded
 
 - [ ] `python backend/scripts/check_production_config.py` passes against the production environment.
 - [ ] PostgreSQL running; `alembic upgrade head` applied; `alembic check` clean.
+- [ ] `python backend/scripts/load_curriculum.py` completed and the authored curriculum inventory is present.
 - [ ] `TALIMGO_ENV=production`, strong `TALIMGO_SESSION_SECRET`, exact `TALIMGO_ALLOWED_ORIGINS`.
 - [ ] TLS terminated by the proxy; HTTP redirects; `X-Forwarded-Proto` set by the proxy.
 - [ ] `/api/docs` returns 404; hardening headers present on `/api/health` (see the threat model).

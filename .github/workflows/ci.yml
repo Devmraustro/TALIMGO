@@ -122,6 +122,9 @@ jobs:
           alembic upgrade head
           alembic check
 
+      - name: Load authored curriculum into migrated PostgreSQL
+        run: python scripts/load_curriculum.py
+
       - name: Smoke-test startup, account/session and goal persistence on PostgreSQL
         run: python scripts/postgres_smoke.py
 
