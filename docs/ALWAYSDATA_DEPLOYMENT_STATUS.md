@@ -4,7 +4,21 @@
 
 This document records an evidence snapshot of the Alwaysdata deployment preparation, what has been confirmed locally, and what requires owner action before the deployment can go live.
 
-## 1. Verified baseline (evidence snapshot as of 2026-11-02)
+## 0. Repository baseline for this documentation revision
+
+| Item | Status | Evidence |
+|------|--------|----------|
+| PR #11 merged | Confirmed | Squash-merge commit `e21366cd430837772edcae3a4349439c1761d3a5`; GitHub reports the merge commit signature as verified. |
+| PR #10 closed | Confirmed | Closed as superseded by PR #11; do not merge the duplicate Vite/documentation branch. |
+| Post-merge `main` CI | Passed | [Run 41517171892](https://github.com/Devmraustro/TALIMGO/actions/runs/41517171892) — 7/7 jobs on `e21366cd430837772edcae3a4349439c1761d3a5`. |
+| Vercel status on that merge commit | Successful status contexts | `talimgo-preview` and `talimgo-api` both report `success`; these are not production-readiness evidence. |
+| Old PR #11 branch after the merge | Historical only | `979f259c2272fe6516ad72ec72c7926795218853` and run `41519616464` belong to the old PR branch, not to `main`. Do not use that branch as the next deployment baseline. |
+
+`e21366cd430837772edcae3a4349439c1761d3a5` is the code baseline preceding this documentation-only
+revision, not a permanent assertion of the current `main` HEAD. Re-read `origin/main`, open PRs and
+CI before any subsequent work.
+
+## 1. Historical PR #9 baseline (evidence snapshot, before PR #11)
 
 | Item | Status | Evidence |
 |------|--------|----------|
@@ -29,7 +43,7 @@ This document records an evidence snapshot of the Alwaysdata deployment preparat
 | GitHub Actions Run #237 | Passed | 7/7 jobs passed on signed PR #11 commit `b888e570838caaafad35021de8f10faa726544b6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41358309523 |
 | GitHub Actions Run #239 | Passed | 7/7 jobs passed on signed PR #11 commit `1ecfd4cc634875681146690004dd7363409f8fa6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41488205784 |
 
-**Note:** The live branch head, latest CI results, and current Vercel deployments must be checked through PR #11 on GitHub. The data above is an evidence snapshot as of the status date above, not a live assertion of branch state.
+**Note:** This table is a historical PR #9 evidence snapshot, not a live assertion of branch state. For the later PR #11 baseline see §0; always re-check the live `main` head, CI and Vercel state on GitHub.
 
 ## 2. What has NOT been deployed
 
@@ -81,19 +95,22 @@ The Alwaysdata deployment phase is complete only when every item in the acceptan
 
 ## 7. Git state
 
-| Branch | SHA | Status |
+| Reference | SHA | Status |
 |--------|-----|--------|
-| `main` (local) | `765eed71ce967540491814fdb88dfae042fdea6b` | Synced with PR #9 merge |
-| `origin/main` (remote) | `765eed71ce967540491814fdb88dfae042fdea6b` | PR #9 merged |
+| `main` code baseline before this documentation revision | `e21366cd430837772edcae3a4349439c1761d3a5` | PR #11 squash merge; post-merge CI run `41517171892` passed 7/7. Re-check the live head before reuse. |
+| Old PR #11 branch after the merge | `979f259c2272fe6516ad72ec72c7926795218853` | Historical branch-only commit; not merged into `main` and not a deployment baseline. |
 
-The current branch head (`fix/frontend-vite-security-and-deployment-status-signed-v2`) and its latest CI/Vercel state must be checked through PR #11 on GitHub. Historical commit SHAs from prior documentation snapshots are listed below for reference only.
+PR #11 is merged and PR #10 is closed. Do not resume the old PR branch or infer the current `main`
+head from any historical table. Historical commit SHAs from prior documentation snapshots are listed below for reference only.
 
 Historical commit SHAs (not part of current work):
 | Branch | SHA | Status |
 |--------|-----|--------|
 | `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `b888e570838caaafad35021de8f10faa726544b6` | Previous PR #11 commit; Vercel previews READY for this SHA |
 | `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `1ecfd4cc634875681146690004dd7363409f8fa6` | Previous PR #11 commit; Vercel previews READY for this SHA |
-| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` | Previous PR #11 commit; CI run #41490792120 passed 7/7 |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` | Previous PR #11 commit; pull-request CI run `41490792120` passed 7/7, not post-merge CI |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `1e25ffe76a065a10348c58ed1ea3e6ec75317a4b` | Previous PR #11 commit; push CI run `41506736016` passed 7/7 and both Vercel status contexts succeeded for this exact SHA |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `13c73881dbd356127047a0c2189e635935a4d30f` | PR #11 head at merge; push CI run `41509516797` passed 7/7 |
 | `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
 
 **Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11 commit `b888e57`, Run #239 for PR #11 commit `1ecfd4c`) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness.
