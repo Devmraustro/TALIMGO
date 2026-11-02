@@ -122,9 +122,13 @@ set +a
 .venv/bin/python scripts/check_production_config.py
 .venv/bin/alembic upgrade head
 .venv/bin/alembic check
+.venv/bin/python scripts/load_curriculum.py
 ```
 
-Expected final Alembic check: `No new upgrade operations detected.`
+Expected final Alembic check: `No new upgrade operations detected.` The curriculum command must then
+report the authored content counts. It refuses a database that is not at Alembic head and performs an
+idempotent upsert without deleting learner data. Keep `TALIMGO_SEED_ON_STARTUP=false`; this explicit
+release step is how a migrated production database receives its lessons, items, and projects.
 
 **Do not run these commands until the owner has verified that the database is newly provisioned,
 empty, exclusively TALIMGO-owned, and backed up according to the owner's policy.** Do not run them
@@ -234,6 +238,7 @@ is invalidated. Never test against a public third-party system or any AUSTRO res
 - [ ] Python venv and package install tested.
 - [ ] Production config preflight passes against the dedicated DB settings.
 - [ ] Alembic migrations and drift check pass against that dedicated database.
+- [ ] `scripts/load_curriculum.py` completes; authored objectives, lessons, items, and projects are readable.
 - [ ] ASGI User Program starts on Alwaysdata's supplied `$IP` and `$PORT`.
 - [ ] Same-origin `/api` routing is proved; session cookie and headers verified in browser.
 - [ ] Health check and disposable deployment verifier pass; test account cleanup confirmed.

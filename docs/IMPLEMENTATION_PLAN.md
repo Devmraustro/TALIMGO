@@ -4,7 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-11-01 (§7.27 records PR #8's production fail-closed config guard, post-merge CI, and the Vercel deployment-state inspection; hosting/runtime and real local-model verification remain owner/infrastructure blockers. Historical status entries retain their original evidence dates.)
+Last updated: 2026-11-02 (§7.28 records deliberate, migration-gated production curriculum loading with local regression evidence and CI on the code commit. Historical status entries retain their original evidence dates.)
 
 ---
 
@@ -1145,3 +1145,41 @@ dedicated to TALIMGO. Do not reuse a database, role, environment file or host th
 AUSTRO. The API must remain behind a same-origin `/api` route because the frontend uses
 same-origin fetch and `SameSite=Lax` session cookies. Do not run migrations, expose a site or
 claim production readiness until that topology and isolated database ownership are verified.
+
+### 7.28 Deliberate production curriculum loading (2026-11-02) — IMPLEMENTED, CI-verified
+
+**Deployment gap closed in the repository.** Alembic creates schema, but production startup deliberately
+returns after checking that schema and does not mirror the authored curriculum. A health check could
+therefore pass while the learner database had no lessons or assessment items. The new operator command
+`backend/scripts/load_curriculum.py` makes content loading an explicit release step. It refuses an
+empty, manually-created, stale, or otherwise non-head Alembic schema, then uses the existing stable-ID
+upsert loader. It neither creates schema nor enables development seeding in production. Code commit:
+`614a9ed8552f31619a97a88f113c7d824abe73d5` (PR #13).
+
+**Regression evidence.** `backend/tests/test_curriculum_load_script.py` executes the real CLI against
+isolated SQLite databases: it proves refusal before migrations, refusal one revision behind head, full
+inventory loading, byte-identical repeat summaries, restoration of an edited authored field, and
+preservation of a learner plus an evidence row across a second load. The PostgreSQL CI job now invokes
+the same command after its migration/drift checks and before its startup/account/goal smoke.
+
+**Local results on the checkpoint working tree.** Backend: **454 passed / 4 skipped**. Ruff lint and
+format, Bandit, local-only-AI scan, and Python licence check passed. On a fresh disposable migrated
+SQLite database, `alembic check` reported no new operations; two consecutive loads each reported
+**2 paths, 20 objectives, 20 lessons, 68 items, 2 projects**, and direct inventory queries matched those
+counts. The disposable database was removed. These are local migration/SQLite results, not a real
+PostgreSQL server, Alwaysdata deployment, or production claim.
+
+**CI on code commit `614a9ed…`.** Push run
+[41535264535](https://github.com/Devmraustro/TALIMGO/actions/runs/41535264535) and pull-request run
+[41535280774](https://github.com/Devmraustro/TALIMGO/actions/runs/41535280774) each passed **7/7 jobs**.
+The PostgreSQL job's new curriculum-load step passed after migrations/drift checks, followed by the
+startup/account/goal smoke and the existing dump/restore rehearsal. Vercel `talimgo-api` became READY;
+`talimgo-preview` was BLOCKED with the explicit reason that the local commit signature could not be
+verified. That is not recorded as a frontend build failure, and no Vercel protection setting was
+changed. A GitHub-created merge remains necessary for a verified main commit; hosting readiness is
+still unproven.
+
+`docs/DEPLOYMENT.md` and `docs/ALWAYSDATA_DEPLOYMENT_RUNBOOK.md` now place the command after migrations
+and before opening the learner journey. Real hosting, PostgreSQL provisioning, same-origin Vercel
+routing, backups, monitoring, human reviews, and real local-model evaluation remain separate launch
+gates.
