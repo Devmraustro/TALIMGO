@@ -1,6 +1,6 @@
 # TALIMGO — Alwaysdata Deployment Status
 
-**Status date: 2026-11-01**
+**Status date: 2026-11-02**
 
 This document records the verified state of the Alwaysdata deployment preparation, what has been confirmed locally, and what requires owner action before the deployment can go live.
 
@@ -17,7 +17,7 @@ This document records the verified state of the Alwaysdata deployment preparatio
 | Bandit security scan | Passed | Exit code 0 |
 | Alembic migrations | Passed | Head `d5b8e0f13a72`, upgrade + check clean |
 | Production preflight | Passed | All 6 checks pass (PostgreSQL URL accepted; SQLite correctly rejected) |
-| Frontend tests | Passed | 75 passed, 1 skipped (full suite run twice; ProjectsPanel test passed in three isolated runs) |
+| Frontend tests | Passed | 75 passed, 1 skipped (full suite run twice; ProjectsPanel test passed in three isolated runs; one earlier timeout observed but not reproduced; cause not established) |
 | Frontend typecheck | Passed | `tsc --noEmit` clean |
 | Frontend build | Passed | `vite build` succeeds (Vite 6.4.5) |
 | Bundle gate | Passed | `check-bundle.mjs` — same-origin assets, no local/insecure host |
@@ -70,7 +70,7 @@ Alternative: Vercel frontend with server-side `/api/*` rewrite to Alwaysdata API
 
 ## 5. Known findings
 
-- **ProjectsPanel test timeout**: Passes in isolation (~8.5s) in three isolated runs; did not time out in two full-suite runs. The earlier timeout was not reproduced; the cause is not definitively established as environmental.
+- **ProjectsPanel test timeout**: Passes in isolation (~8.5s) in three isolated runs; did not time out in two full-suite runs. One earlier timeout was observed but not reproduced; cause not established.
 - **No local AI runtime**: AI is explicitly disabled (`TALIMGO_AI_ENABLED=false`). Local model selection, installation, and evaluation is a separate owner decision.
 
 ## 6. Definition of completion
@@ -83,12 +83,13 @@ The Alwaysdata deployment phase is complete only when every item in the acceptan
 |--------|-----|--------|
 | `main` (local) | `765eed71ce967540491814fdb88dfae042fdea6b` | Synced with PR #9 merge |
 | `origin/main` (remote) | `765eed71ce967540491814fdb88dfae042fdea6b` | PR #9 merged |
-| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `1ecfd4cc634875681146690004dd7363409f8fa6` | PR #11 open, draft, signed commit |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` | PR #11 open, draft, signed commit |
 
 Historical snapshot (not part of current work):
 | `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
 | `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `b888e570838caaafad35021de8f10faa726544b6` | Previous PR #11 commit; Vercel previews READY for this SHA |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` (historical) | `1ecfd4cc634875681146690004dd7363409f8fa6` | Previous PR #11 commit; Vercel previews READY for this SHA |
 
-The working tree has two untracked files: `git-ssh-sign-wrapper.cmd` and `git-ssh-sign-wrapper.ps1` (SSH signing helper scripts, not part of the deployment).
+The working tree had two untracked files as of 2026-11-01: `git-ssh-sign-wrapper.cmd` and `git-ssh-sign-wrapper.ps1` (SSH signing helper scripts, not part of the deployment).
 
-**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11 commit `b888e57`, Run #239 for PR #11 commit `1ecfd4c`) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness. Both Vercel `talimgo-preview` and `talimgo-api` previews are READY for exact SHA `1ecfd4cc634875681146690004dd7363409f8fa6`.
+**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11 commit `b888e57`, Run #239 for PR #11 commit `1ecfd4c`) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness. Both Vercel `talimgo-preview` and `talimgo-api` previews are READY for exact SHA `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d`.
