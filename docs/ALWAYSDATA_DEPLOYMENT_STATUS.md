@@ -17,7 +17,7 @@ This document records the verified state of the Alwaysdata deployment preparatio
 | Bandit security scan | Passed | Exit code 0 |
 | Alembic migrations | Passed | Head `d5b8e0f13a72`, upgrade + check clean |
 | Production preflight | Passed | All 6 checks pass (PostgreSQL URL accepted; SQLite correctly rejected) |
-| Frontend tests | Passed | 75 passed, 1 skipped (ProjectsPanel timeout is environment flakiness; passes in isolation ~8.5s) |
+| Frontend tests | Passed | 75 passed, 1 skipped (full suite run twice; ProjectsPanel test passed in three isolated runs) |
 | Frontend typecheck | Passed | `tsc --noEmit` clean |
 | Frontend build | Passed | `vite build` succeeds (Vite 6.4.5) |
 | Bundle gate | Passed | `check-bundle.mjs` — same-origin assets, no local/insecure host |
@@ -26,7 +26,7 @@ This document records the verified state of the Alwaysdata deployment preparatio
 | Local-only AI gate | Passed | `check_no_external_ai.py` — no hosted providers |
 | PostgreSQL 16 disposable Docker test | Passed | Migrations applied; `alembic check` clean; backend tests 449 passed, 1 skipped |
 | GitHub Actions Run #233 | Passed | 7/7 jobs passed on unsigned PR #10 commit `94313bd` |
-| GitHub Actions Run #235 | Pending | Belongs to signed PR #11; record final result after completion |
+| GitHub Actions Run #237 | Passed | 7/7 jobs passed on signed PR #11 commit `b888e570838caaafad35021de8f10faa726544b6`; https://github.com/Devmraustro/TALIMGO/actions/runs/41358309523 |
 
 ## 2. What has NOT been deployed
 
@@ -69,7 +69,7 @@ Alternative: Vercel frontend with server-side `/api/*` rewrite to Alwaysdata API
 
 ## 5. Known findings
 
-- **ProjectsPanel test timeout**: Passes in isolation (~8.5s) but can time out at 15s under system load when running the full suite. Environment-related, not a code defect.
+- **ProjectsPanel test timeout**: Passes in isolation (~8.5s) in three isolated runs; did not time out in two full-suite runs. The earlier timeout was not reproduced; the cause is not definitively established as environmental.
 - **No local AI runtime**: AI is explicitly disabled (`TALIMGO_AI_ENABLED=false`). Local model selection, installation, and evaluation is a separate owner decision.
 
 ## 6. Definition of completion
@@ -82,11 +82,11 @@ The Alwaysdata deployment phase is complete only when every item in the acceptan
 |--------|-----|--------|
 | `main` (local) | `765eed71ce967540491814fdb88dfae042fdea6b` | Synced with PR #9 merge |
 | `origin/main` (remote) | `765eed71ce967540491814fdb88dfae042fdea6b` | PR #9 merged |
-| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `f7cf1bd61c407b9568c64cc89abb803086bc8208` | PR #11 open, draft, signed commit |
+| `fix/frontend-vite-security-and-deployment-status-signed-v2` | `b888e570838caaafad35021de8f10faa726544b6` | PR #11 open, draft, signed commit |
 
 Historical snapshot (not part of current work):
 | `fix/ruff-config-migration-files` (historical) | `367e4d036baf00c2d1f35e72e9abf1b9189e793e` | Ruff fix merged as PR #7 |
 
 The working tree has two untracked files: `git-ssh-sign-wrapper.cmd` and `git-ssh-sign-wrapper.ps1` (SSH signing helper scripts, not part of the deployment).
 
-**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #235 for PR #11) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness.
+**Important:** Local tests were executed on the development machine. GitHub CI results (Run #233 for PR #10, Run #237 for PR #11) are recorded separately. Vercel Preview states are observed independently and do not constitute production readiness. Both Vercel `talimgo-preview` and `talimgo-api` previews are READY for exact SHA `b888e57`.
