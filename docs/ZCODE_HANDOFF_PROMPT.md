@@ -7,14 +7,14 @@
 - الفرع الأساسي `main` على commit:
   `765eed71ce967540491814fdb88dfae042fdea6b`.
 - تم دمج PR #9 بنجاح: [PR #9](https://github.com/Devmraustro/TALIMGO/pull/9).
-- CI بعد الدمج: [run #41314061952](https://github.com/Devmraustro/TALIMGO/actions/runs/41314061952) — جميع الوظائف السبعة ناجحة.
-- عند SHA الخاص بـ PR #9: Backend pytest سجل 449 passed / 1 skipped / 0 failed؛ الفحص المحلي الأمامي سجل 75 passed / 1 skipped / 1 timed out (اختبار ProjectsPanel ينتهي في ~8.5 ثانية عند التشغيل المنعزل، وي_timeout عند التحميل العالي للنظام في المجموعة الكاملة).
+- CI لفرع PR: [run #41314061952](https://github.com/Devmraustro/TALIMGO/actions/runs/41314061952) — جميع الوظائف السبعة ناجحة.
+- عند SHA الخاص بـ PR #9: Backend pytest سجل 449 passed / 1 skipped / 0 failed؛ الفحص المحلي الأمامي سجل 75 passed / 1 skipped في runين كاملين؛ ProjectsPanel نجح في ثلاث عمليات تشغيل معزولة؛ حدث انقطاع سابق واحد لكنه لم يُعاد إنتاجه، والسبب غير معروف.
 - تم إصلاح تحذير أمان Vite (GHSA-8g5g-mxqh-grgj): تم التحديث من الإصدار 6.4.4 إلى 6.4.5، وتغيير ربط خادم التطوير من `0.0.0.0` إلى `127.0.0.1`. نتيجة `npm audit`: 0 ثغرات.
 - PR #10 لا يزال مفتوحاً كمسودة (draft) على الفرع غير الموقّع.
 - PR #11 هو الاستبدال الموقّع ويظل مفتوحاً كمسودة (draft).
-- الكاميت الحالي للفرع: `6813a3a4dcfa11e7084601b79d5e68010b3a22b3` (مستودع `fix/frontend-vite-security-and-deployment-status-signed-v2` على GitHub).
-- الكاميت `1e25ffe76a065a10348c58ed1ea3e6ec75317a4b` كان الكود الأساسي قبل هذا التوثيق فقط. الكاميت الحالي للفرع يُحقق من خلال PR #11 على GitHub.
-- الكاميت `1ecfd4cc634875681146690004dd7363409f8fa6` مع Run #239 (7/7 ناجح) مسجل كمرجع تاريخي في `docs/ALWAYSDATA_DEPLOYMENT_STATUS.md`. لا يُعدّ هذا رأس الفرع الحالي.
+- رأس الفرع المباشر: راجع `https://github.com/Devmraustro/TALIMGO/tree/fix/frontend-vite-security-and-deployment-status-signed-v2` قبل بدء العمل؛ لا تُثبت رقم الكاميت الحالي كمregister دائم.
+- الكود الأساسي السابق قبل هذا التوثيق فقط: `6813a3a4dcfa11e7084601b79d5e68010b3a22b3` (راجع رأس الفرع المباشر عبر GitHub قبل بدء العمل).
+- الكاميت `1ecfd4cc634875681146690004dd7363409f8fa6` مرجع تاريخي فقط (راجع `docs/ALWAYSDATA_DEPLOYMENT_STATUS.md`؛ Run #239 مع `1ecfd4c`؛ Run #241 يُحقق في `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d`، وليس في `1ecfd4c`). لا يُعدّ هذا رأس الفرع الحالي.
 
 **تاريخ المرجع (snapshot التاريخي):**  
 الكاميت `6f713462b9d9fd77a0fcd50f4e66d7fdc08c799d` مع Run #241 (7/7 ناجح، CI لفرع PR) مسجل كمرجع تاريخي. لا يُعدّ هذا رأس الفرع الحالي.
