@@ -32,7 +32,8 @@ def client_ip(request: Request) -> str:
     return "unknown"
 
 
-def _token_from_request(request: Request, authorization: str | None) -> str | None:
+def session_token_from_request(request: Request, authorization: str | None) -> str | None:
+    """The session token presented with this request: the cookie first, then a Bearer header."""
     cookie_token = request.cookies.get(SESSION_COOKIE_NAME)
     if cookie_token:
         return cookie_token
@@ -46,7 +47,7 @@ def get_optional_user(
     db: Annotated[DbSession, Depends(get_db)],
     authorization: Annotated[str | None, Header()] = None,
 ) -> User | None:
-    token = _token_from_request(request, authorization)
+    token = session_token_from_request(request, authorization)
     if not token:
         return None
     row = db.query(Session).filter(Session.token_hash == hash_session_token(token)).one_or_none()

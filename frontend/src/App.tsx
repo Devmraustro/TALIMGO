@@ -170,14 +170,25 @@ export function App() {
   }, [me, t]);
 
   async function signOut() {
-    await api.post("/api/auth/logout");
-    setMe(null);
-    setDashboard(null);
-    setPlan(null);
-    setGoal(null);
-    setPracticeTarget(null);
-    setProjectTarget(null);
-    navigate("dashboard");
+    // The local half must always happen — a learner who clicks "sign out" stays signed out of this
+    // device even if the network fails. The server half is best-effort: if it fails, say so rather
+    // than leaving the learner on a screen whose buttons all appear to work (unhandled rejection).
+    let notice: string | null = null;
+    try {
+      await api.post("/api/auth/logout");
+    } catch {
+      notice = t("auth.logoutLocal");
+    } finally {
+      setMe(null);
+      setDashboard(null);
+      setPlan(null);
+      setGoal(null);
+      setSchedule(null);
+      setPracticeTarget(null);
+      setProjectTarget(null);
+      navigate("dashboard");
+      if (notice) setError(notice);
+    }
   }
 
   function startOnObjective(

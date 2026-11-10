@@ -10,10 +10,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 
 from app.curriculum.loader import load_all
-from app.deps import AdminUser, Db
+from app.deps import AdminUser, Db, get_admin_user
 from app.models import AuditLog, Evidence, Item, Lesson, Objective, Project, User
 
-router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(AdminUser)])
+# NOTE: ``dependencies`` needs the dependency *callable*, not the ``Annotated`` alias (``AdminUser``).
+# Passing the alias made FastAPI model the alias itself as a parameter with ``*args/**kwargs``, so
+# every admin route failed request validation with 422 before authorisation ever ran — the routes
+# were unreachable for learners *and* admins. Row-level authorisation still comes from ``get_admin_user``.
+router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(get_admin_user)])
 
 
 @router.post("/curriculum/reload")
