@@ -57,7 +57,8 @@ test.skipIf(!ENABLED)("a new learner registers, sets a goal and is asked to take
   const email = `ui-${Date.now()}@example.com`;
   render(<App />);
 
-  // 1. The real sign-up form, including the local-AI statement the learner must accept.
+  // 1. A visitor with no session sees the landing page; the primary CTA opens the sign-up form.
+  fireEvent.click((await screen.findAllByRole("button", { name: /build my learning plan/i }))[0]);
   expect(await screen.findByRole("heading", { name: /create your account/i })).toBeTruthy();
   expect(screen.getByText(/tutoring fails openly if the local model is unavailable/i)).toBeVisible();
   fireEvent.change(screen.getByLabelText("Email"), { target: { value: email } });

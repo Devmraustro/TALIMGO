@@ -1183,3 +1183,59 @@ still unproven.
 and before opening the learner journey. Real hosting, PostgreSQL provisioning, same-origin Vercel
 routing, backups, monitoring, human reviews, and real local-model evaluation remain separate launch
 gates.
+
+### 7.29 Frontend: public pre-launch landing page and reference design-system alignment (2026-11-10) — IMPLEMENTED LOCALLY, VERIFIED LOCALLY ONLY
+
+**Scope.** Master-reference §15.3.2 lists a public landing page as MVP surface #1 and §20.1.1 provides
+the owner-reviewed sample messaging; §9/Appendix A define the visual identity. The shipped UI had none of
+this and its palette predated the reference (navy `#26418f` + gold `#f2a541`). This batch closed that gap
+without touching the backend, the engine, the database, `main`, or any deployment setting.
+
+**What changed.**
+
+- `frontend/src/styles.css` — token layer rebuilt on the reference: §9.2.1 light palette
+  (`#111318`/`#D92D20`/`#F9FAFB`/`#667085`/`#EAECF0`), a separately designed §9.2.2 dark mode
+  (`#0B0D12`/`#111318`/`#171A21`/`#F2F4F7`/`#98A2B3`), Appendix A shadow/motion/z-index scales,
+  `prefers-reduced-motion` zeroing of the motion tokens, and a 2px `#D92D20` (light) / `#F04444` (dark)
+  focus ring per §9.5.1. Legacy custom-property aliases now map onto the reference tokens, so the
+  existing component set keeps its markup. Values the reference leaves open (light
+  `--color-surface-raised`, dark danger/warning/brand-strong) are marked `PROPOSED` in-file and await
+  owner review. Font *stacks* name Inter / IBM Plex Sans Arabic with system fallbacks; the binaries are
+  deliberately not bundled yet (no new dependency; licence verification per §14.6 is pending and
+  DEC-012 may relocate tokens).
+- `frontend/src/components/LogoMark.tsx` — geometric provisional symbol (T fused with a forward path,
+  ink stroke + red origin node) per the §9.4 direction. Explicitly marked provisional in-code: not a
+  released logo; adoption requires DEC-001 clearance and owner approval. Never mirrored in RTL.
+- `frontend/src/components/LandingPage.tsx` — the public pre-launch surface: §20.1.1 messaging,
+  one primary action ("Build my learning plan" / «ابنِ خطة تعلّمي»), three defensible value propositions,
+  the six-step mechanism, the Karim journey explicitly labelled illustrative, the won't/control trust
+  statement, and ten honest FAQ disclosures (no prices — DEC-008 open; "not a production service yet"
+  banner; Arabic designated RTL-first). Fully bilingual through `lib/i18n` keys (`landing.*`, added in
+  EN + MSA); no network calls; CTAs only switch the authored views; no images, no external references.
+- `frontend/src/App.tsx` — no session ⇒ landing first; landing CTA/sign-in open the auth view in
+  register/login mode respectively; expired-session and sign-out paths open the auth view directly;
+  optional `initialMode` on `AuthPanel`; locale toggle on the landing flips `dir`/`lang`/`data-locale`
+  for logged-out visitors. Authenticated layout gains the provisional mark; tagline uses `.brand-tag`.
+- `frontend/index.html` — title is now the confirmed EN primary tagline ("TALIMGO — Learn. Grow. Go.")
+  per REQ-BRAND-01; `theme-color #111318`; description reworded to the honest pre-launch claim.
+- Tests: `App.test.tsx` click-through for the new unauthenticated flow; `ui-smoke.test.tsx` updated the
+  same way; new `LandingPage.test.tsx` (EN/AR rendering, CTA independence, FAQ disclosures, no prices,
+  illustrative-label present, no images / no off-origin URLs).
+
+**Local verification (this machine, 2026-11-10; NOT CI, NOT production).** `tsc --noEmit` clean; frontend
+suite **83 passed / 1 skipped** (the skip is the deliberately opt-in `TALIMGO_UI_SMOKE` test);
+`vite build` clean (bundle 313.94 kB JS / 95.03 kB gzip, CSS 16.33 kB / 3.80 kB gzip);
+`check-bundle.mjs` passed (same-origin assets, no local/insecure hosts); `check-licences.mjs` passed
+(185 packages). End-to-end smoke against a live local stack: the sign-up → goal → starting-check flow
+completed through the new landing-first entry (see honest caveat below). Backend untouched; its suite is
+unaffected. A static preview of the built interface is served locally for review; it is not a deployed
+service and has no API behind it.
+
+**Honest caveats.** (1) While verifying, the smoke ran against an already-running local dev server on
+port 8000 (its own backend failed to bind); the disposable `ui-*@example.com` account it created in that
+scratch SQLite database was removed immediately afterwards (user, profile, consents, goal, session,
+diagnostic attempt) and a pre-cleanup backup is at `/tmp/talimgo-preview.db.bak-20261110`. The pre-existing
+server was not stopped or reconfigured. (2) Landing copy is §20.1.1 PROPOSED messaging wired verbatim in
+substance; tagline/brand decisions remain the owner's. (3) No screen-reader, contrast-tool, 200–400%
+zoom or axe run was repeated for the new surface; the automated checks that exist still pass. (4) No
+prices, no testimonials, no user counts, no certificate claims, per §20 and the open DEC log.

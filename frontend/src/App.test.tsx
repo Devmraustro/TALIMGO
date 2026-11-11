@@ -27,6 +27,14 @@ describe("App shell", () => {
 
     render(<App />);
 
+    // A visitor with no session lands on the public pre-launch page first…
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Learn. Grow. Go." }),
+    ).toBeInTheDocument();
+    // …and reaches the account form through its one primary action.
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Build my learning plan" })[0],
+    );
     expect(await screen.findByRole("heading", { name: "Create your account" })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByText(/Your study content is never sent/i)).toBeInTheDocument();

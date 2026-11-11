@@ -11,6 +11,8 @@ import {
 } from "./lib/api";
 import { direction, translator, type Locale, type StringKey } from "./lib/i18n";
 import { AuthPanel } from "./components/AuthPanel";
+import { LandingPage } from "./components/LandingPage";
+import { LogoMark } from "./components/LogoMark";
 import { DashboardPanel } from "./components/DashboardPanel";
 import { DiagnosticPanel } from "./components/DiagnosticPanel";
 import { FlashcardsPanel } from "./components/FlashcardsPanel";
@@ -68,6 +70,10 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [booting, setBooting] = useState(true);
+  // Pre-launch: a visitor with no session sees the public landing page first; every path that
+  // needs the account form (CTA, sign-in link, expired session, sign-out) switches to it directly.
+  const [authView, setAuthView] = useState<"landing" | "auth">("landing");
+  const [authMode, setAuthMode] = useState<"register" | "login">("register");
 
   const t = useCallback(
     (key: StringKey, values?: Record<string, string | number>) => translator(locale)(key, values),
@@ -81,6 +87,13 @@ export function App() {
     document.documentElement.dataset.reducedMotion = String(next.profile.reduced_motion);
     document.documentElement.dir = direction(next.profile.locale);
     document.documentElement.lang = next.profile.locale;
+  }, []);
+
+  const changeLocale = useCallback((next: Locale) => {
+    setLocale(next);
+    document.documentElement.dir = direction(next);
+    document.documentElement.lang = next;
+    document.documentElement.dataset.locale = next;
   }, []);
 
   const refreshDashboard = useCallback(async () => {
@@ -165,6 +178,7 @@ export function App() {
       setPracticeTarget(null);
       setProjectTarget(null);
       setView("dashboard");
+      setAuthView("auth");
       setError(t("auth.sessionExpired"));
     });
   }, [me, t]);
@@ -187,6 +201,7 @@ export function App() {
       setPracticeTarget(null);
       setProjectTarget(null);
       navigate("dashboard");
+      setAuthView("auth");
       if (notice) setError(notice);
     }
   }
@@ -233,12 +248,35 @@ export function App() {
   }
 
   if (!me) {
+    if (authView === "landing") {
+      return (
+        <LandingPage
+          t={t}
+          locale={locale}
+          onLocale={changeLocale}
+          onGetStarted={() => {
+            setAuthMode("register");
+            setAuthView("auth");
+          }}
+          onSignIn={() => {
+            setAuthMode("login");
+            setAuthView("auth");
+          }}
+        />
+      );
+    }
     return (
       <main className="app-shell" id="main">
         <header className="site">
-          <div className="brand">
-            TALIMGO<span>{t("app.tagline")}</span>
+          <div className="brand brand--lockup">
+            <LogoMark size={26} className="brand-mark" />
+            <span>
+              TALIMGO<span className="brand-tag">{t("app.tagline")}</span>
+            </span>
           </div>
+          <button type="button" className="ghost" onClick={() => setAuthView("landing")}>
+            {t("landing.back")}
+          </button>
         </header>
         {error ? (
           <div className="error-banner" role="alert">
@@ -247,6 +285,7 @@ export function App() {
         ) : null}
         <AuthPanel
           t={t}
+          initialMode={authMode}
           onAuthenticated={(next) => {
             // A message left over from an expired session must not survive a fresh sign-in.
             setError(null);
@@ -284,8 +323,11 @@ export function App() {
   return (
     <main className="app-shell" id="main">
       <header className="site">
-        <div className="brand">
-          TALIMGO<span>{t("app.tagline")}</span>
+        <div className="brand brand--lockup">
+          <LogoMark size={26} className="brand-mark" />
+          <span>
+            TALIMGO<span className="brand-tag">{t("app.tagline")}</span>
+          </span>
         </div>
         <nav aria-label={t("nav.sections")}>
           {VIEWS.map((target) => (
