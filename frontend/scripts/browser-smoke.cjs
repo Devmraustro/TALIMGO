@@ -98,8 +98,11 @@ async function main() {
 
   try {
     await page.goto(baseURL, { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "Create your account", exact: true }).waitFor();
     await page.addScriptTag({ content: axeCore.source });
+    // No session: the visitor lands on the public pre-launch page first (master reference §20.1).
+    await assertAccessibility(page, "English pre-launch landing page");
+    await page.getByRole("button", { name: "Build my learning plan", exact: true }).first().click();
+    await page.getByRole("heading", { name: "Create your account", exact: true }).waitFor();
     await assertAccessibility(page, "English registration form");
 
     const email = `talimgo-browser-${Date.now()}@example.com`;
