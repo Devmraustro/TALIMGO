@@ -1,44 +1,63 @@
--- TALIMGO staging permission verification queries (read-only unless noted).
--- Run connected as the ROLE BEING VERIFIED (e.g. talimgo_staging_app).
+-- TALIMGO staging permission verification (read-only).
+-- Run connected as the role being verified, normally talimgo_staging_app:
 -- psql -h <host> -U talimgo_staging_app -d talimgo_staging -f deploy/staging/verify_staging.sql
 --
--- Every probe is fail-safe by construction: it either fails with a permission error or
--- touches only objects that cannot exist. No statement in this file can delete or modify
--- real data, even if executed by a privileged role by mistake.
+-- This file intentionally contains SELECT statements only. It does not create, alter,
+-- drop, grant, revoke, change roles, or change session authorization. Run any DDL-denial
+-- experiments only against a disposable staging database using a separate test procedure.
 
-\set ON_ERROR_STOP off
--- Expected-failure statements must print errors and continue; review output manually.
+SELECT
+    'role attributes' AS check_name,
+    rolname,
+    rolsuper,
+    rolcreatedb,
+    rolcreaterole,
+    rolreplication
+FROM pg_roles
+WHERE rolname = current_user;
 
-SELECT 'role' AS check, rolname, rolsuper, rolcreatedb, rolcreaterole, rolreplication
-FROM pg_roles WHERE rolname = current_user;
+SELECT
+    'database context' AS check_name,
+    current_database() AS database_name,
+    current_user AS role_name;
 
-SELECT 'database' AS check, current_database(), current_user;
+-- Read access used by the application.
+SELECT 'read objectives' AS check_name, count(*) AS row_count
+FROM public.objectives;
 
--- DML on application tables (expect counts, not errors)
-SELECT 'read objectives' AS check, count(*) FROM public.objectives;
-SELECT 'read alembic head' AS check, version_num FROM public.alembic_version;
+SELECT 'read alembic head' AS check_name, version_num
+FROM public.alembic_version;
 
--- DDL refusal probes (each MUST fail; on a permissive host the artifacts created are
--- empty and harmless, and can be dropped by the owner)
-CREATE TABLE public.permission_probe_app (id int);
-CREATE ROLE probe_should_fail_d12 NOLOGIN;
-ALTER TABLE public.objectives ADD COLUMN probe_should_fail_d12 text;
--- Targets a name that never exists: errors either with "must be owner" (denied) or
--- "table does not exist" — never with the loss of a real table.
-DROP TABLE public.talimgo_drop_probe_never_exists;
+-- Privilege inventory. The application role should not have schema/database creation
+-- rights or DDL-capable table privileges. Review the boolean values against the runbook.
+SELECT
+    'schema/database privileges' AS check_name,
+    has_database_privilege(current_user, current_database(), 'CREATE') AS can_create_database_objects,
+    has_schema_privilege(current_user, 'public', 'CREATE') AS can_create_in_public_schema;
 
--- Cross-database access probes (expected: connection refused / permission denied).
--- Run these from the shell, not here — \c inside a script with ON_ERROR_STOP off is fragile:
---   psql -h <host> -U talimgo_staging_app -d talimgo_prod_like -c 'select 1'   -- expect failure
---   psql -h <host> -U talimgo_staging_app -d austro_prod_like  -c 'select 1'   -- expect failure
+SELECT
+    'objectives table privileges' AS check_name,
+    has_table_privilege(current_user, 'public.objectives', 'SELECT') AS can_select,
+    has_table_privilege(current_user, 'public.objectives', 'INSERT') AS can_insert,
+    has_table_privilege(current_user, 'public.objectives', 'UPDATE') AS can_update,
+    has_table_privilege(current_user, 'public.objectives', 'DELETE') AS can_delete,
+    has_table_privilege(current_user, 'public.objectives', 'TRUNCATE') AS can_truncate,
+    has_table_privilege(current_user, 'public.objectives', 'REFERENCES') AS can_references,
+    has_table_privilege(current_user, 'public.objectives', 'TRIGGER') AS can_trigger;
 
--- Membership check (expect: no rows = app role belongs to nothing sensitive)
-SELECT 'membership' AS check, r.rolname
-FROM pg_roles r
-JOIN pg_auth_members m ON m.roleid = r.oid
-JOIN pg_roles a ON a.oid = m.member
-WHERE a.rolname = current_user;
+-- Membership inventory. Investigate any membership in migration, owner, or privileged roles.
+SELECT
+    'role memberships' AS check_name,
+    granted_role.rolname AS granted_role,
+    membership.admin_option
+FROM pg_roles AS granted_role
+JOIN pg_auth_members AS membership ON membership.roleid = granted_role.oid
+JOIN pg_roles AS member_role ON member_role.oid = membership.member
+WHERE member_role.rolname = current_user
+ORDER BY granted_role.rolname;
 
--- SET ROLE escalation probe (MUST fail with permission denied)
-SET ROLE talimgo_staging_migrate;
-RESET ROLE;
+-- Cross-database isolation cannot be proven from a query inside this database.
+-- Verify from the deployment operator's shell, without changing any resources:
+--   psql -h <host> -U talimgo_staging_app -d <talimgo_prod_like> -c 'select 1'
+--   psql -h <host> -U talimgo_staging_app -d <austro_prod_like> -c 'select 1'
+-- Both connections must be denied. Never substitute production or AUSTRO credentials here.
