@@ -161,7 +161,7 @@ html[data-locale="ar"] body {
   inset-inline-start: -9999px;
   top: var(--space-2);
   background: var(--brand-primary);
-  color: var(--surface);
+  color: #FFFFFF; /* brand fill uses a fixed white label in both colour schemes */
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   z-index: 10;
@@ -255,7 +255,7 @@ button,
   border: 1px solid transparent;
   padding: var(--space-2) var(--space-4);
   background: var(--brand-primary);
-  color: var(--surface);
+  color: #FFFFFF; /* --color-brand-fill requires a white label in light and dark modes */
   transition: background var(--motion-fast) ease;
 }
 button:hover:not(:disabled) {
@@ -265,9 +265,10 @@ button:disabled {
   opacity: 0.6;
   cursor: progress;
 }
-button.secondary {
+button.secondary,
+.button.secondary {
   background: transparent;
-  color: var(--brand-primary);
+  color: var(--color-brand);
   border-color: var(--border);
 }
 button.ghost {
