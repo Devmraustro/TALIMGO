@@ -277,6 +277,12 @@ button.ghost {
   border-color: transparent;
   text-decoration: underline;
 }
+/* The generic button hover fill must not turn ghost controls into
+   low-contrast red-on-red text. Keep a subtle raised surface instead. */
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--ink);
+}
 
 label {
   display: block;
