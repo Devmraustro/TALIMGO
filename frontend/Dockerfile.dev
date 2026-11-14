@@ -1,0 +1,19 @@
+# syntax=docker/dockerfile:1
+
+# Development image for the TALIMGO Vite server.
+#
+# The repository is mounted at /app and the server runs from /app/frontend, mirroring CI:
+# frontend tests read the repository-root vercel.json, middleware.ts, deploy/nginx/ and
+# frontend/vercel.json, so the container needs the whole checkout, not only frontend/.
+FROM node:20-alpine
+
+WORKDIR /app/frontend
+
+COPY package.json package-lock.json ./
+RUN npm install --no-audit --no-fund
+
+COPY . .
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
