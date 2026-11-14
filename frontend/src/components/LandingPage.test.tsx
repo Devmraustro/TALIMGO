@@ -61,8 +61,11 @@ describe("LandingPage (public pre-launch surface)", () => {
     for (const item of items) {
       expect(item.querySelector("summary")).not.toBeNull();
     }
-    // Pricing honesty: the FAQ must not publish a number.
-    expect(container.textContent).toContain("No price is published");
+    // Pricing honesty: the FAQ must disclose that no price is decided yet,
+    // and it must not publish a number.
+    expect(container.textContent).toMatch(
+      /Pricing, free-tier limits and paid plans have not been decided/i
+    );
     expect(container.textContent).not.toMatch(/\$\s?\d|€\s?\d|DZD/);
   });
 
