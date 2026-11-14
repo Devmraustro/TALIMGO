@@ -53,6 +53,32 @@ npm install
 npm run dev                           # http://localhost:5173, proxies /api to :8000
 ```
 
+### Docker development stack
+
+`docker-compose.dev.yml` runs PostgreSQL 16, the API and the Vite server in containers. It applies
+Alembic migrations on startup and keeps the database in a named volume. The whole checkout is
+mounted at `/app`, so both test suites see the same repository artifacts as CI.
+
+```bash
+docker compose -f docker-compose.dev.yml up --build -d   # start
+docker compose -f docker-compose.dev.yml ps              # container health
+docker compose -f docker-compose.dev.yml down            # stop, keep the database
+docker compose -f docker-compose.dev.yml down -v         # stop and delete the database
+```
+
+- Interface: <http://localhost:5173>
+- API health: <http://localhost:8000/api/health>
+
+```bash
+# Backend suite inside the API container (the /tmp tmpfs is created by the compose file)
+docker compose -f docker-compose.dev.yml exec -T \
+  -e TALIMGO_ENV=test -e TALIMGO_DATABASE_URL=sqlite:////tmp/ci-test.db \
+  backend pytest
+
+# Frontend suite inside the Vite container
+docker compose -f docker-compose.dev.yml exec -T frontend npx vitest run
+```
+
 A local model is optional for development; the app runs and degrades explicitly without one.
 To enable tutoring locally:
 

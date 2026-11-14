@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1
+
+# Development image for the TALIMGO API.
+#
+# Layout matters: docker-compose.dev.yml mounts the whole repository at /app and runs the
+# container from /app/backend. Several tests resolve the repository root as
+# `Path(__file__).resolve().parents[2]` and then read deploy/, .github/, docs/ and
+# frontend/package.json, so the container has to mirror a real checkout rather than only
+# the backend directory.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# bash: the deployment scripts and their tests are POSIX shell programs.
+# curl: deploy/health-check.sh refuses to run without it.
+# nodejs: deploy/stage-frontend.sh requires `node` to run the built-bundle release gate, even
+#         with --skip-build. Only `node` is needed; npm belongs to the frontend image.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bash curl nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app/backend
+
+# The repository uses pyproject.toml (not requirements.txt) as the single dependency source.
+# The editable install points at /app/backend, which is where the bind mount appears at run time.
+COPY pyproject.toml ./
+COPY app ./app
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -e ".[dev]"
+
+# Tests, migrations and operator scripts are used by `docker exec` during development.
+COPY . .
+
+EXPOSE 8000
+
+# Migrations are applied by the compose command before uvicorn starts.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

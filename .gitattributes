@@ -1,0 +1,4 @@
+# Shell helpers are executed on POSIX CI and inside the Linux Docker development containers.
+# Git for Windows' core.autocrlf default checks them out with CRLF, which makes bash fail with
+# "$'\r': command not found". Force LF so every checkout runs the same bytes everywhere.
+*.sh text eol=lf

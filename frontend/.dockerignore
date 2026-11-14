@@ -1,0 +1,8 @@
+# Development-only Docker context.
+node_modules/
+dist/
+coverage/
+.vite/
+.env
+.env.*
+!.env.example

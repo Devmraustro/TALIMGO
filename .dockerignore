@@ -1,0 +1,33 @@
+# Repository-level Docker context guard. The development images build from backend/ and frontend/,
+# but this file also protects any future build that uses the repository root as its context.
+.git/
+.github/
+TALIMGO123/
+node_modules/
+**/node_modules/
+.venv/
+**/.venv/
+dist/
+**/dist/
+coverage/
+**/coverage/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+**/*.egg-info/
+.pytest_cache/
+**/.pytest_cache/
+.ruff_cache/
+**/.ruff_cache/
+*.db
+*.sqlite3
+.env
+.env.*
+!.env.example
+data/
+secrets/
+model_cache/
+*.gguf
+*.safetensors
+*.bin
