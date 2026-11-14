@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
 from app.config import get_settings
-from app.deps import SESSION_COOKIE_NAME, CurrentUser, Db, client_ip
+from app.deps import SESSION_COOKIE_NAME, CurrentUser, Db, client_ip, session_token_from_request
 from app.schemas import LoginRequest, MeOut, ProfileOut, RegisterRequest, UserOut
 from app.services import accounts
 from app.utils import utcnow
@@ -100,8 +100,15 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Db) -
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(request: Request, response: Response, db: Db) -> Response:
-    token = request.cookies.get(SESSION_COOKIE_NAME)
+def logout(
+    request: Request,
+    response: Response,
+    db: Db,
+    authorization: str | None = Header(default=None),
+) -> Response:
+    # Revoke exactly the credential presented with this request, however it was presented
+    # (cookie or Bearer). Before this, a bearer-authenticated caller stayed signed in after logout.
+    token = session_token_from_request(request, authorization)
     if token:
         accounts.revoke_session(db, token)
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")

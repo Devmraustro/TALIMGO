@@ -27,6 +27,14 @@ describe("App shell", () => {
 
     render(<App />);
 
+    // A visitor with no session lands on the public pre-launch page first…
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Learn. Grow. Go." }),
+    ).toBeInTheDocument();
+    // …and reaches the account form through its one primary action.
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "Build my learning plan" })[0],
+    );
     expect(await screen.findByRole("heading", { name: "Create your account" })).toBeInTheDocument();
     expect(screen.getByLabelText("Email")).toBeInTheDocument();
     expect(screen.getByText(/Your study content is never sent/i)).toBeInTheDocument();
@@ -385,4 +393,88 @@ describe("App shell", () => {
     rejectSchedule(new Error("No active schedule"));
   });
 
+});
+
+describe("Sign out", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("still signs the learner out of this device when the logout request fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url === "/api/auth/me") {
+          return Promise.resolve(
+            jsonResponse({
+              user: {
+                id: "usr_signout",
+                email: "signout@example.com",
+                display_name: "Learner",
+                role: "learner",
+                created_at: "2026-01-01T00:00:00Z",
+              },
+              profile: {
+                locale: "en",
+                weekly_minutes: 180,
+                availability_days: [],
+                target_date: null,
+                low_bandwidth: false,
+                reduced_motion: false,
+                onboarding_completed_at: null,
+              },
+              consents: [],
+            }),
+          );
+        }
+        if (url === "/api/dashboard") {
+          return Promise.resolve(
+            jsonResponse({
+              goal: {
+                id: "gol_signout",
+                path_id: "python-foundations",
+                statement: "Learn Python",
+                motivation: "",
+                target_date: null,
+                weekly_minutes: 180,
+                status: "active",
+                created_at: "2026-01-01T00:00:00Z",
+              },
+              next_action: {
+                kind: "learn",
+                title: "Variables, values and types",
+                objective_id: "py:values",
+                lesson_id: "py:values:lesson",
+                plan_item_id: null,
+                est_minutes: 25,
+                rationale: "It is the next unfinished step in your plan.",
+                evidence_basis: "No evidence recorded for this objective yet.",
+              },
+              mastery_summary: { acquiring: 0, retaining: 0, needs_review: 0, recorded: 0 },
+              recent_evidence: [],
+              blockers: [],
+            }),
+          );
+        }
+        if (url === "/api/plans/active") return Promise.resolve(jsonResponse(null));
+        if (url === "/api/health/ai") {
+          return Promise.resolve(jsonResponse({ ai_enabled: false, policy: "local-only" }));
+        }
+        if (url === "/api/auth/logout") {
+          return Promise.resolve(jsonResponse({ detail: "Server unavailable" }, 503));
+        }
+        return Promise.resolve(jsonResponse({}, 404));
+      }),
+    );
+
+    render(<App />);
+
+    const logout = await screen.findByRole("button", { name: /sign out/i });
+    fireEvent.click(logout);
+
+    // The account screen returns even though the server could not be reached,
+    // and the learner is told the change may not have reached the server.
+    expect(await screen.findByRole("heading", { name: "Create your account" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/signed out on this device/i);
+  });
 });

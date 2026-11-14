@@ -1,57 +1,129 @@
 /* TALIMGO design tokens.
-   Values follow TALIMGO_MASTER_REFERENCE.md §9 (visual identity) and §25A (tokens).
-   Everything is driven by custom properties so light/dark and RTL stay consistent. */
+   Values follow TALIMGO_MASTER_REFERENCE.md §9.2 (colour), §9.3 (type), §9.5 (foundations)
+   and Appendix A (proposed tokens). Light and dark are designed separately (§9.2.2); every
+   light-mode interactive pair meets WCAG 2.2 AA (§9.2.4). Legacy alias names
+   (--brand-primary, --surface, …) are kept so existing components keep working; they
+   map onto the reference tokens below. PROPOSED values not fixed by the reference
+   (light surface-raised, dark danger/warning/brand-strong) are marked and need owner review. */
 
 :root {
-  --brand-primary: #26418f;
-  --brand-primary-strong: #1b2f68;
-  --brand-accent: #f2a541;
-  --ink: #101828;
-  --ink-muted: #475467;
-  --surface: #ffffff;
-  --surface-raised: #f7f8fb;
-  --surface-sunken: #eef1f7;
-  --border: #d0d5dd;
-  --success: #0f7b4f;
-  --danger: #b42318;
-  --warning: #b54708;
-  --focus: #f2a541;
+  color-scheme: light;
+
+  /* Colour — reference §9.2.1 / Appendix A (light mode) */
+  --color-ink: #111318;
+  --color-brand: #D92D20;            /* brand, primary actions, progress, focus */
+  --color-brand-fill: #D92D20;       /* fills carrying a white label (both modes) */
+  --color-brand-hover: #B42318;      /* hover/pressed on brand fills (6.57:1 on white) */
+  --color-brand-bright: #F04444;     /* non-text accents only (≥24px icons, charts) */
+  --color-brand-strong: #B42318;     /* destructive fill; small critical red text */
+  --color-danger-text: #B42318;
+  --color-surface: #FFFFFF;
+  --color-canvas: #F9FAFB;
+  --color-surface-raised: #F2F4F7;   /* PROPOSED light value (reference fixes it for dark only) */
+  --color-text-primary: var(--color-ink);
+  --color-text-secondary: #667085;
+  --color-border: #EAECF0;
+  --color-success: #067647;
+  --color-warning: #B54708;
+  --color-ink-inverse: #FFFFFF;
+
+  /* Legacy aliases → reference tokens (kept for the existing component set) */
+  --brand-primary: var(--color-brand-fill);
+  --brand-primary-strong: var(--color-brand-hover);
+  --brand-accent: var(--color-text-secondary);
+  --ink: var(--color-text-primary);
+  --ink-muted: var(--color-text-secondary);
+  --surface: var(--color-surface);
+  --surface-raised: var(--color-surface-raised);
+  --surface-sunken: var(--color-canvas);
+  --border: var(--color-border);
+  --success: var(--color-success);
+  --danger: var(--color-danger-text);
+  --warning: var(--color-warning);
+  --focus: var(--color-brand);
+  --focus-ring: var(--color-brand);
+
+  /* Type — reference §9.3 (self-hosted Inter / IBM Plex Sans Arabic are the target;
+     system fallbacks keep the interface correct offline until the fonts are bundled) */
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-arabic: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Type scale — reference §9.3.2 */
+  --step-0: 1rem;          /* body-md 16/1.6 */
+  --step-1: 1.125rem;      /* body-lg 18/1.6 */
+  --step-2: 1.25rem;       /* heading-sm 20/1.35 */
+  --step-3: 1.5rem;        /* heading-md 24/1.3 */
+  --step-4: 1.875rem;      /* heading-lg 30/1.25 */
+  --step-5: 2.25rem;       /* display-sm 36/1.2 */
+  --step-6: 3rem;          /* display-lg 48/1.15 */
+  --numeric-display: 2rem; /* numeric-display 32/1.1, tabular figures */
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --space-5: 1.5rem;
-  --space-6: 2rem;
-  --space-7: 3rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-7: 2rem;
+  --space-8: 2.5rem;
+  --space-10: 3rem;
+  --space-12: 4rem;
 
+  /* Radius & borders — reference §9.5.1 */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
+  --radius-full: 999px;
+  --border-hairline: 1px;
+  --border-focus: 2px;
+  --border-emphasis: 2px;
 
-  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-arabic: "Noto Naskh Arabic", "Amiri", "Segoe UI", system-ui, serif;
-  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Menlo, monospace;
+  /* Elevation — reference §9.5.1 (never the primary means of grouping) */
+  --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-2: 0 4px 8px -2px rgba(16, 24, 40, 0.1), 0 2px 4px -2px rgba(16, 24, 40, 0.06);
+  --shadow-3: 0 12px 16px -4px rgba(16, 24, 40, 0.08), 0 4px 6px -2px rgba(16, 24, 40, 0.03);
 
-  --step-0: 1rem;
-  --step-1: 1.125rem;
-  --step-2: 1.375rem;
-  --step-3: 1.75rem;
+  /* Motion — reference §9.5.1; zeroed by the reduced-motion rules below */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 320ms;
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Z-index — named layers (reference §9.5.1); never magic numbers in components */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-dropdown: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --brand-primary: #8ea9f5;
-    --brand-primary-strong: #b6c7ff;
-    --ink: #f2f4f7;
-    --ink-muted: #c3c8d2;
-    --surface: #12161f;
-    --surface-raised: #1a2030;
-    --surface-sunken: #0c1017;
-    --border: #39404f;
-    --success: #5fd0a0;
-    --danger: #ff9b8a;
-    --warning: #ffc46b;
+    color-scheme: dark;
+    --color-canvas: #0B0D12;
+    --color-surface: #111318;
+    --color-surface-raised: #171A21;
+    --color-border: #262B36;
+    --color-text-primary: #F2F4F7;
+    --color-text-secondary: #98A2B3;
+    --color-brand: #F04444;        /* text/icon accent on dark surfaces */
+    --color-brand-fill: #D92D20;   /* retained for fills: white label ≥4.83:1 */
+    --color-brand-hover: #B42318;
+    --color-brand-bright: #F04444;
+    --color-brand-strong: #F04444; /* PROPOSED: light #B42318 is unreadable on dark */
+    --color-danger-text: #FDA29B;  /* PROPOSED dark variant (reference silent; old set used #FF9B8A) */
+    --color-success: #32D583;
+    --color-warning: #FEC84B;      /* PROPOSED dark variant (reference silent) */
+    --color-ink-inverse: #111318;
+    --focus-ring: #F04444;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
   }
 }
 
@@ -89,7 +161,7 @@ html[data-locale="ar"] body {
   inset-inline-start: -9999px;
   top: var(--space-2);
   background: var(--brand-primary);
-  color: var(--surface);
+  color: #FFFFFF; /* brand fill uses a fixed white label in both colour schemes */
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   z-index: 10;
@@ -100,7 +172,7 @@ html[data-locale="ar"] body {
 
 /* Focus is always visible: keyboard users must never lose their place. */
 :focus-visible {
-  outline: 3px solid var(--focus);
+  outline: var(--border-focus) solid var(--focus-ring);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -123,12 +195,25 @@ header.site {
   color: var(--brand-primary);
 }
 
-.brand span {
+.brand .brand-tag {
   color: var(--ink-muted);
   font-weight: 500;
   font-size: var(--step-0);
   margin-inline-start: var(--space-2);
 }
+
+/* Ghost-styled fragment links (landing header/nav) */
+a.ghost {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding-inline: var(--space-3);
+  color: var(--ink-muted);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* Locale-aware smooth scrolling is handled by the media query near the top. */
 
 .card {
   background: var(--surface);
@@ -170,8 +255,8 @@ button,
   border: 1px solid transparent;
   padding: var(--space-2) var(--space-4);
   background: var(--brand-primary);
-  color: var(--surface);
-  transition: background 120ms ease;
+  color: #FFFFFF; /* --color-brand-fill requires a white label in light and dark modes */
+  transition: background var(--motion-fast) ease;
 }
 button:hover:not(:disabled) {
   background: var(--brand-primary-strong);
@@ -180,9 +265,10 @@ button:disabled {
   opacity: 0.6;
   cursor: progress;
 }
-button.secondary {
+button.secondary,
+.button.secondary {
   background: transparent;
-  color: var(--brand-primary);
+  color: var(--color-brand);
   border-color: var(--border);
 }
 button.ghost {
@@ -190,6 +276,12 @@ button.ghost {
   color: var(--ink-muted);
   border-color: transparent;
   text-decoration: underline;
+}
+/* The generic button hover fill must not turn ghost controls into
+   low-contrast red-on-red text. Keep a subtle raised surface instead. */
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-raised);
+  color: var(--ink);
 }
 
 label {
@@ -374,12 +466,22 @@ dl.summary dt {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
   * {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
 }
 
+html[data-reduced-motion="true"] {
+  --motion-fast: 0ms;
+  --motion-base: 0ms;
+  --motion-slow: 0ms;
+}
 html[data-reduced-motion="true"] * {
   animation-duration: 0.001ms !important;
   transition-duration: 0.001ms !important;
@@ -437,4 +539,428 @@ header.site nav button {
 .choice-row button[aria-pressed="true"] {
   outline: 2px solid var(--accent, currentColor);
   outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Public landing page (pre-launch surface, master reference §20.1 + §15.3.2).
+   Wider canvas than the learner app; RTL-aware via logical properties only.
+   ------------------------------------------------------------------------- */
+
+.app-shell--landing {
+  max-width: 74rem;
+}
+
+.landing-header {
+  margin-bottom: 0;
+}
+.landing-header .locale-toggle {
+  display: inline-flex;
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 2px;
+  gap: 2px;
+}
+.landing-header .locale-toggle button {
+  min-height: 2.25rem;
+  min-width: 2.75rem;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.landing-header .locale-toggle button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--color-ink-inverse);
+}
+.landing-header .locale-toggle button:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+.landing-header .locale-toggle button[aria-pressed="true"]:hover:not(:disabled) {
+  background: var(--ink);
+}
+
+.brand--lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.brand--lockup .brand-mark {
+  display: block;
+}
+
+.landing-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--warning);
+  border: var(--border-hairline) solid currentColor;
+  border-radius: var(--radius-full);
+  padding: 0.15rem var(--space-3);
+  width: max-content;
+}
+.landing-eyebrow::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: currentColor;
+}
+
+.landing-hero {
+  display: grid;
+  gap: var(--space-8);
+  padding-block: var(--space-8) var(--space-10);
+}
+@media (min-width: 64rem) {
+  .landing-hero {
+    grid-template-columns: 1.05fr 0.95fr;
+    align-items: center;
+  }
+}
+
+.hero-title {
+  font-size: clamp(2rem, 5.2vw, var(--step-6));
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+  margin: var(--space-4) 0 var(--space-3);
+  text-wrap: balance;
+}
+.hero-sub {
+  font-size: var(--step-3);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+  margin: 0 0 var(--space-4);
+  text-wrap: balance;
+}
+.hero-lede {
+  font-size: var(--step-0);
+  line-height: 1.7;
+  color: var(--ink-muted);
+  max-width: 62ch;
+  margin: 0;
+}
+[dir="rtl"] .hero-lede {
+  font-size: 1.0625rem; /* Arabic needs a touch more size/leading — reference §9.3.4 */
+}
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  margin-top: var(--space-6);
+}
+a.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  min-height: 2.75rem;
+}
+.cta-row .button,
+.cta-row button,
+.landing-cta-band button {
+  min-height: 2.75rem;
+  padding-inline: var(--space-6);
+  font-weight: 600;
+}
+
+/* Stylized, non-interactive preview of the plan screen (aria-hidden; the journey section carries the accessible story). */
+.plan-preview {
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+  padding: var(--space-6);
+}
+.plan-preview-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-4);
+}
+.plan-preview-head::before {
+  content: "";
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-fill);
+}
+.plan-preview-goal {
+  font-size: var(--step-1);
+  font-weight: 600;
+  margin: 0 0 var(--space-4);
+}
+.pp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  margin-bottom: var(--space-2);
+  font-size: 0.9375rem;
+}
+.pp-row .pill {
+  margin: 0;
+  flex-shrink: 0;
+}
+.pp-bar {
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  overflow: hidden;
+  margin: var(--space-4) 0 var(--space-2);
+}
+.pp-bar-fill {
+  height: 100%;
+  width: 62%;
+  background: var(--color-brand-fill);
+  border-radius: inherit;
+}
+.pp-evidence {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+  margin: 0;
+}
+.preview-caption {
+  margin-top: var(--space-2);
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  text-align: center;
+}
+
+.landing-section {
+  padding-block: var(--space-10);
+  border-top: var(--border-hairline) solid var(--border);
+  scroll-margin-block-start: var(--space-6);
+}
+.landing-section > h2 {
+  font-size: clamp(1.5rem, 3vw, var(--step-4));
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-6);
+  text-wrap: balance;
+}
+
+.value-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+@media (min-width: 48rem) {
+  .value-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.value-card {
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+.value-card .value-index {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-brand);
+  letter-spacing: 0.08em;
+}
+.value-card h3 {
+  margin: var(--space-2) 0;
+}
+.value-card p {
+  margin: 0;
+  color: var(--ink-muted);
+  line-height: 1.65;
+}
+
+.how-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-4);
+  counter-reset: step;
+}
+@media (min-width: 48rem) {
+  .how-steps {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (min-width: 64rem) {
+  .how-steps {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.how-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-4);
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.how-step::before {
+  counter-increment: step;
+  content: counter(step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-full);
+  border: var(--border-emphasis) solid var(--color-brand-fill);
+  color: var(--color-brand);
+  font-weight: 700;
+  font-size: 0.9375rem;
+}
+.how-step h3 {
+  font-size: 1.0625rem;
+  margin: 0 0 var(--space-1);
+  line-height: 1.4;
+}
+.how-step p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+
+.journey-quote {
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--border);
+  border-inline-start: var(--border-emphasis) solid var(--color-brand-fill);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  font-size: var(--step-1);
+  line-height: 1.7;
+  margin: 0 0 var(--space-2);
+}
+.caption {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.trust-grid {
+  display: grid;
+  gap: var(--space-4);
+}
+@media (min-width: 48rem) {
+  .trust-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.trust-card {
+  background: var(--surface);
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+.trust-card h3 {
+  margin-top: 0;
+}
+.trust-card ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-2);
+  color: var(--ink-muted);
+  line-height: 1.65;
+}
+
+.faq-list {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 60rem;
+}
+.faq-item {
+  border: var(--border-hairline) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 0 var(--space-5);
+}
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 600;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  list-style: none;
+}
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+.faq-item summary::after {
+  content: "+";
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+.faq-item[open] summary::after {
+  content: "–";
+}
+.faq-item p {
+  margin: 0 0 var(--space-4);
+  color: var(--ink-muted);
+  line-height: 1.7;
+  border-top: var(--border-hairline) solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.landing-cta-band {
+  border-top: var(--border-hairline) solid var(--border);
+  padding: var(--space-10) var(--space-4);
+  text-align: center;
+}
+.landing-cta-band h2 {
+  font-size: clamp(1.5rem, 3.4vw, var(--step-5));
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-3);
+}
+.landing-cta-band p {
+  color: var(--ink-muted);
+  max-width: 52ch;
+  margin: 0 auto var(--space-6);
+  line-height: 1.7;
+}
+
+.landing-footer {
+  border-top: var(--border-hairline) solid var(--border);
+  padding: var(--space-6) var(--space-4) var(--space-10);
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  line-height: 1.7;
+  display: grid;
+  gap: var(--space-2);
+}
+.landing-footer p {
+  margin: 0;
+}
+
+@media (max-width: 38rem) {
+  .landing-hero {
+    padding-block: var(--space-6) var(--space-8);
+  }
+  .landing-header nav {
+    width: 100%;
+  }
 }

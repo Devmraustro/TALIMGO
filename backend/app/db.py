@@ -51,10 +51,17 @@ def get_session_factory() -> sessionmaker[Session]:
 
 
 def get_db() -> Iterator[Session]:
-    """FastAPI dependency yielding a session that is always closed."""
+    """FastAPI dependency yielding a session that is always rolled back and closed.
+
+    Routes commit explicitly on success. Anything left uncommitted when the handler raises is
+    rolled back here rather than returned to the pool with an open transaction.
+    """
     session = get_session_factory()()
     try:
         yield session
+    except BaseException:
+        session.rollback()
+        raise
     finally:
         session.close()
 

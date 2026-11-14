@@ -5,10 +5,12 @@ import type { StringKey } from "../lib/i18n";
 interface AuthPanelProps {
   t: (key: StringKey, values?: Record<string, string | number>) => string;
   onAuthenticated: (me: Me) => void;
+  /** Which form to open with. Defaults to register; the landing page passes "login" for its sign-in link. */
+  initialMode?: "register" | "login";
 }
 
-export function AuthPanel({ t, onAuthenticated }: AuthPanelProps) {
-  const [mode, setMode] = useState<"register" | "login">("register");
+export function AuthPanel({ t, onAuthenticated, initialMode = "register" }: AuthPanelProps) {
+  const [mode, setMode] = useState<"register" | "login">(initialMode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
