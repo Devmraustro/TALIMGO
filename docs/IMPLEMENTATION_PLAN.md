@@ -4,7 +4,7 @@
 **Rule:** an item is only `IMPLEMENTED` when the code exists, and only `TESTED` when the check was
 executed and its result observed. Evidence lines record the command actually run.
 
-Last updated: 2026-11-02 (§7.28 records deliberate, migration-gated production curriculum loading with local regression evidence and CI on the code commit. Historical status entries retain their original evidence dates.)
+Last updated: 2026-11-14 (§0 and §7.29 record the merge of PR #14 into `main` and the post-merge CI evidence. Historical status entries retain their original evidence dates.)
 
 ---
 
@@ -17,9 +17,11 @@ Last updated: 2026-11-02 (§7.28 records deliberate, migration-gated production 
 | Third-party audit of the three named candidates | IMPLEMENTED | `docs/OPEN_SOURCE_REUSE_AUDIT.md` |
 | Stack decision | CONFIRMED (owner-delegated) | `docs/adr/0001-stack-and-repository-layout.md` |
 | Local-only AI policy | CONFIRMED | `AGENTS.md` §2, `docs/adr/0002-local-ai-only.md` |
-| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | Latest verified CI on `d1be9b1` passed the backend job, including Ruff, Bandit, migration checks, the full pytest suite (which now runs the deployment artifact tests on Linux), and the explicit local-model skip; see [PR CI run 39682204302](https://github.com/Devmraustro/TALIMGO/actions/runs/39682204302). Exact pytest pass count is not stated in the captured summary lines. |
-| Frontend slice | TESTED | Latest verified CI on `d1be9b1` passed the frontend job — typecheck, build, component tests and the bundle gate (run 39682204302). The archived job logs are not retrievable without authentication, so no test count from that run is restated here; the 56 passed / 1 skipped figure recorded in the previous status pass belongs to the older head `438f759`, and the local figure of 64 passed / 1 skipped is a Windows result, not a CI result. The skip is the opt-in live-stack UI smoke test, which has a separate browser journey job. |
-| Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` is its own CI job and passed in run 39682204302; run locally on the current tree it reports `passed (80 source files, 7 URL literals, no hosted providers imported or declared)`; proven to fail on a planted violation |
+| Backend vertical slice (auth → goal → diagnostic → roadmap → dashboard) | TESTED | Latest verified CI on `3818ecd` (post-merge `main`) passed the backend job — Ruff, Bandit, migration checks, the full pytest suite and the explicit local-model skip — in [run 43546942169](https://github.com/Devmraustro/TALIMGO/actions/runs/43546942169). The captured log does not include pytest's final count line, so no CI pass count is restated here. |
+| Frontend slice | TESTED | Latest verified CI on `3818ecd` (post-merge `main`) passed the frontend job — typecheck, build, component tests and the bundle gate — in [run 43546942169](https://github.com/Devmraustro/TALIMGO/actions/runs/43546942169). The suite reports **83 passed / 1 skipped / 0 failed**; the skip is the opt-in live-stack UI smoke test, which has a separate browser journey job. |
+| Public pre-launch landing page (MVP surface #1) | IMPLEMENTED · TESTED on `main` | PR #14 merged into `main` as `3818ecdadfbaf537e992770fdc8de69d7f9c5da6` (parents `9cbf057` + `694e420`). The landing page is the first view for logged-out visitors, with EN/AR copy, RTL switching, ten FAQ disclosures and no published price. PR head CI passed **7/7** ([run 43546375691](https://github.com/Devmraustro/TALIMGO/actions/runs/43546375691)); post-merge `main` CI passed **7/7** ([run 43546942169](https://github.com/Devmraustro/TALIMGO/actions/runs/43546942169)), including the Chromium/axe job. See §7.29 for scope and caveats. |
+| Commit signing on this workstation | BLOCKED (environment) | `commit.gpgsign=true` points to `C:\Users\rabdz\.ssh\id_ed25519_signing`, which does not exist on this machine. Commits `c16a450`, `694e420` and merge `3818ecd` are unsigned (`%G? = N`). Vercel previously blocked a preview because a local commit signature could not be verified, so this can affect preview deployments. Owner action required: restore the signing key or approve unsigned commits. |
+| Local-only AI gate in CI | TESTED | `python scripts/check_no_external_ai.py` is its own CI job and passed on `3818ecd` in [run 43546942169](https://github.com/Devmraustro/TALIMGO/actions/runs/43546942169); run locally on the current tree it reports `passed (80 source files, 7 URL literals, no hosted providers imported or declared)`; proven to fail on a planted violation |
 | Real local-model integration verified | BLOCKED (environment) | No local model runtime was configured in CI. `pytest -m local_model` explicitly skips with: `set TALIMGO_TEST_LOCAL_MODEL=1 and configure a local runtime to run this test`. Mock adapter tests do not establish real Arabic output quality, latency, throughput, or grounding quality. |
 
 ---
@@ -1184,7 +1186,7 @@ and before opening the learner journey. Real hosting, PostgreSQL provisioning, s
 routing, backups, monitoring, human reviews, and real local-model evaluation remain separate launch
 gates.
 
-### 7.29 Frontend: public pre-launch landing page and reference design-system alignment (2026-11-10) — IMPLEMENTED LOCALLY, VERIFIED LOCALLY ONLY
+### 7.29 Frontend: public pre-launch landing page and reference design-system alignment (2026-11-10) — IMPLEMENTED, MERGED, CI-VERIFIED
 
 **Scope.** Master-reference §15.3.2 lists a public landing page as MVP surface #1 and §20.1.1 provides
 the owner-reviewed sample messaging; §9/Appendix A define the visual identity. The shipped UI had none of
@@ -1239,3 +1241,31 @@ server was not stopped or reconfigured. (2) Landing copy is §20.1.1 PROPOSED me
 substance; tagline/brand decisions remain the owner's. (3) No screen-reader, contrast-tool, 200–400%
 zoom or axe run was repeated for the new surface; the automated checks that exist still pass. (4) No
 prices, no testimonials, no user counts, no certificate claims, per §20 and the open DEC log.
+
+**Post-merge evidence (2026-11-14).** Two defects surfaced while bringing PR #14 to green and were fixed
+before the merge:
+
+- `frontend/src/components/LandingPage.test.tsx` — the FAQ test still asserted the old sentence
+  "No price is published", while the copy now discloses "Pricing, free-tier limits and paid plans have
+  not been decided". The assertion was updated to the current disclosure and still rejects any published
+  currency amount. Commit `c16a450e6a6af479b804b0d583165aa6fabcd9d1`.
+- `frontend/src/styles.css` — the generic button hover fill turned the "Back to overview" ghost button
+  into `#667085` text on `#B42318`, a measured `1.32:1` contrast. CI run 277 failed the axe
+  `color-contrast` rule on that node. A dedicated ghost hover rule now uses the raised surface with
+  primary ink. Commit `694e420f7a78782f8b088a22b874a8a85bf3161c`.
+
+The PR head `694e420` passed **7/7 jobs** in [run 43546375691](https://github.com/Devmraustro/TALIMGO/actions/runs/43546375691). It was merged into `main` with `--no-ff` as
+`3818ecdadfbaf537e992770fdc8de69d7f9c5da6` (parents `9cbf05711b24e5c243b4ea02ffb2929ead14415f` and
+`694e420f7a78782f8b088a22b874a8a85bf3161c`). GitHub records PR #14 as `merged=true` with that merge
+commit. The pushed `main` head then passed **7/7 jobs** in
+[run 43546942169](https://github.com/Devmraustro/TALIMGO/actions/runs/43546942169), including the
+Chromium browser journey and axe accessibility checks, the reverse-proxy job, the PostgreSQL migration
+job and the local-only AI gate. Local confirmation on the same tree: `tsc --noEmit` clean,
+`vite build` clean, `check-bundle.mjs` passed, and the component suite **83 passed / 1 skipped /
+0 failed**. CI is the authoritative result; the local suite twice hit a 5-second timeout in
+`api.test.ts` and `licence-check.test.ts` while other builds ran in parallel, and passed on rerun.
+
+**Residual risk.** The merge commit and the two fix commits are **unsigned** because
+`commit.gpgsign=true` points to a missing key (`C:\Users\rabdz\.ssh\id_ed25519_signing`). Since Vercel
+has previously blocked a preview on an unverifiable signature, preview deployment is not claimed here.
+No production deployment exists; Alwaysdata account isolation (R-1) and owner decisions remain open.
